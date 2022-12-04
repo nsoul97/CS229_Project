@@ -32,21 +32,15 @@ def _mean_std_2_tensors(mean: List[float],
     return mean, std
 
 
-def unnormalize(frames: torch.Tensor,
-                normalize_statistics: bool = True):
-    if normalize_statistics:
-        mean, std = _mean_std_2_tensors(_statistics['mean'], _statistics['std'], len(frames.shape), frames.device)
-        frames = frames * std + mean
-    frames = torch.clamp(frames, min=0., max=1.)
+def unnormalize(frames: torch.Tensor):
+    mean, std = _mean_std_2_tensors(_statistics['mean'], _statistics['std'], len(frames.shape), frames.device)
+    frames = frames * std + mean
     return frames
 
 
-def normalize(frames: torch.Tensor,
-              normalize_statistics: bool = True):
-    frames /= 255.
-    if normalize_statistics:
-        mean, std = _mean_std_2_tensors(_statistics['mean'], _statistics['std'], len(frames.shape), frames.device)
-        frames = (frames - mean) / std
+def normalize(frames: torch.Tensor):
+    mean, std = _mean_std_2_tensors(_statistics['mean'], _statistics['std'], len(frames.shape), frames.device)
+    frames = (frames - mean) / std
     return frames
 
 
@@ -55,8 +49,9 @@ class RobonetImgDataset(data.Dataset):
     def __init__(self,
                  root_dir_path: str,
                  split: str,
-                 use_only_frames: int = None,
-                 normalize_statistics: bool = True):
+                 use_only_frames: int = None):
+
+        super(RobonetImgDataset, self).__init__()
 
         assert split in ['train', 'val', 'test'], "The split can be either 'train', 'val' or 'test'."
 
@@ -76,8 +71,6 @@ class RobonetImgDataset(data.Dataset):
             else:
                 self._data += list(zip([video_fname] * use_only_frames, list(range(use_only_frames))))
 
-        self._normalize_statistics = normalize_statistics
-
     def __len__(self):
         return len(self._data)
 
@@ -87,7 +80,8 @@ class RobonetImgDataset(data.Dataset):
         video = np.load(file_path).astype(float)
         frame = torch.from_numpy(video[frame])
         frame = torch.permute(frame, [2, 0, 1])
-        frame = normalize(frame, self._normalize_statistics)
+        frame /= 255.
+        frame = normalize(frame)
         return frame
 
 
@@ -96,8 +90,9 @@ class RobonetVideoDataset(data.Dataset):
                  root_dir_path: str,
                  split: str,
                  use_only_frames: int = None,
-                 normalize_statistics: bool = True,
                  total_frames: int = 12):
+
+        super(RobonetVideoDataset, self).__init__()
 
         assert split in ['train', 'val', 'test'], "The split can be either 'train', 'val' or 'test'."
         assert (use_only_frames is None) or (use_only_frames >= total_frames), f"The total frames that are used for " \
@@ -122,7 +117,6 @@ class RobonetVideoDataset(data.Dataset):
 
             self._data += list(zip([video_fname] * video_num_windows, list(range(video_num_windows))))
 
-        self._normalize_statistics = normalize_statistics
         self._total_frames = total_frames
 
     def __len__(self):
@@ -131,27 +125,9 @@ class RobonetVideoDataset(data.Dataset):
     def __getitem__(self, idx):
         file_name, start_frame_idx = self._data[idx]
         file_path = os.path.join(self._split_dir_path, file_name)
-        video = np.load(file_path).astype(float)
+        video = np.load(file_path).astype(np.float32)
         video_segment = torch.from_numpy(video[start_frame_idx: start_frame_idx + self._total_frames])
         video_segment = torch.permute(video_segment, [0, 3, 1, 2])
-        video_segment = normalize(video_segment, self._normalize_statistics)
+        video_segment /= 255.
+        video_segment = normalize(video_segment)
         return video_segment
-
-
-if __name__ == '__main__':
-    from tqdm import tqdm
-
-    root_dir_path = "/home/soul/Development/Stanford/Fall 2022/CS 229: Machine Learning/Project/data/dataset/preprocessed_data"
-    dataset = RobonetImgDataset(root_dir_path=root_dir_path,
-                                split="train")
-
-    true_mean = torch.tensor(_statistics['mean']).reshape(-1, 1, 1)
-    rgb_mean = torch.zeros(3)
-    rgb_variance = torch.zeros(3)
-    for i in tqdm(range(len(dataset))):
-        img = dataset[i]
-        rgb_mean += torch.mean(img, dim=[1, 2]) / len(dataset)
-        rgb_variance += torch.mean((img - true_mean) ** 2, dim=[1, 2]) / len(dataset)
-    rgb_std = torch.sqrt(rgb_variance)
-
-    print(rgb_mean, rgb_std)

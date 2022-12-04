@@ -41,7 +41,7 @@ class Logger:
         self._summ_writer.add_image(name, img_grid, step)
 
     def _log_partition_visualizations(self, parition_name, input_videos, reconstruction_videos, input_imgs,
-                                      reconstruction_imgs, step, normalized_statistics, fps, nrow):
+                                      reconstruction_imgs, step, fps, nrow):
 
         assert input_videos.shape == reconstruction_videos.shape, "The input videos and the reconstruction videos must " \
                                                                   "have the same shape."
@@ -52,10 +52,17 @@ class Logger:
         assert input_imgs.shape[0] % nrow == 0, f"{input_imgs.shape[0]} images were given, but each row in the image " \
                                                 f"grid contains {nrow} images."
 
-        input_videos = unnormalize(input_videos, normalized_statistics)
-        reconstruction_videos = unnormalize(reconstruction_videos, normalized_statistics)
-        input_imgs = unnormalize(input_imgs, normalized_statistics)
-        reconstruction_imgs = unnormalize(reconstruction_imgs, normalized_statistics)
+        input_videos = unnormalize(input_videos)
+        torch.clamp(input_videos, 0., 1.)
+
+        reconstruction_videos = unnormalize(reconstruction_videos)
+        torch.clamp(reconstruction_videos, 0., 1.)
+
+        input_imgs = unnormalize(input_imgs)
+        torch.clamp(input_imgs, 0., 1.)
+
+        reconstruction_imgs = unnormalize(reconstruction_imgs)
+        torch.clamp(reconstruction_imgs, 0., 1.)
 
         for i in range(len(input_videos)):
             input_video = input_videos[i]
@@ -116,35 +123,3 @@ class Logger:
         self._summ_writer.flush()
 
 
-if __name__ == '__main__':
-    from dataset import RobonetVideoDataset
-
-    log_dir_path = "/home/soul/Development/Stanford/Fall 2022/CS 229: Machine Learning/Project/logs"
-    log_file_name = "tmp_log"
-
-    dataset_dir_path = "/home/soul/Development/Stanford/Fall 2022/CS 229: Machine Learning/Project/data/dataset/preprocessed_data"
-    train_dataset = RobonetVideoDataset(dataset_dir_path, split="train")
-    val_dataset = RobonetVideoDataset(dataset_dir_path, split="val")
-    test_dataset = RobonetVideoDataset(dataset_dir_path, split="test")
-
-    logger = Logger(log_dir_path, log_file_name, resume=False)
-    for i in range(0, 100, 5):
-        logger.log_loss(train_loss=i, val_loss=i / 2, step=i)
-
-        if i % 50 == 0:
-            train_videos = torch.stack([train_dataset[i], train_dataset[i+100]], dim=0)
-            train_imgs = train_videos[0, :8]
-
-            val_videos = torch.stack([val_dataset[i], val_dataset[i+100]], dim=0)
-            val_imgs = val_videos[0, :8]
-
-            test_videos = torch.stack([test_dataset[i], test_dataset[i+100]], dim=0)
-            test_imgs = test_videos[0, :8]
-
-            logger.log_visualizations(train_input_videos=train_videos, train_reconstruction_videos=train_videos,
-                                      train_input_imgs=train_imgs, train_reconstruction_imgs=train_imgs,
-                                      val_input_videos=val_videos, val_reconstruction_videos=val_videos,
-                                      val_input_imgs=val_imgs, val_reconstruction_imgs=val_imgs,
-                                      test_input_videos=test_videos, test_reconstruction_videos=test_videos,
-                                      test_input_imgs=test_imgs, test_reconstruction_imgs=test_imgs,
-                                      step=i)

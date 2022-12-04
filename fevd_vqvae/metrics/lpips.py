@@ -1,8 +1,10 @@
+import os.path
 import torch
 import torch.nn as nn
 from torchvision import models
 from collections import namedtuple
-from utils import get_ckpt_path
+
+
 
 class LPIPS(nn.Module):
     # Learned perceptual metric
@@ -20,21 +22,25 @@ class LPIPS(nn.Module):
         for param in self.parameters():
             param.requires_grad = False
 
-    def load_from_pretrained(self, name="vgg_lpips"):
-        ckpt = get_ckpt_path(name, "taming/modules/autoencoder/lpips")
+    def load_from_pretrained(self):
+        ckpt = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, "checkpoints", "metrics", "vgg.pth"))
         self.load_state_dict(torch.load(ckpt, map_location=torch.device("cpu")), strict=False)
-        print("loaded pretrained LPIPS loss from {}".format(ckpt))
-
-    @classmethod
-    def from_pretrained(cls, name="vgg_lpips"):
-        if name != "vgg_lpips":
-            raise NotImplementedError
-        model = cls()
-        ckpt = get_ckpt_path(name)
-        model.load_state_dict(torch.load(ckpt, map_location=torch.device("cpu")), strict=False)
-        return model
 
     def forward(self, input, target):
+
+        assert input.shape == target.shape, f"The input {input.shape} and target {target.shape} must have the " \
+                                            f"same shape."
+
+        video_input = len(input.shape) == 5     # batch of videos [B, T, C, H, W]
+        if video_input:
+            B, T, C, H, W = input.shape
+            input = input.reshape(-1, C, H, W)
+            target = target.reshape(-1, C, H, W)
+
+        # The input and the target are in the range [0, 1]. The range of the input for the LPIPS model is [-1, 1]
+        input = 2. * input - 1.
+        target = 2. * target - 1.
+
         in0_input, in1_input = (self.scaling_layer(input), self.scaling_layer(target))
         outs0, outs1 = self.net(in0_input), self.net(in1_input)
         feats0, feats1, diffs = {}, {}, {}
@@ -47,6 +53,10 @@ class LPIPS(nn.Module):
         val = res[0]
         for l in range(1, len(self.chns)):
             val += res[l]
+
+        if video_input:
+            val = val.reshape(B, T, 1, 1, 1)
+
         return val
 
 
@@ -72,7 +82,8 @@ class NetLinLayer(nn.Module):
 class vgg16(torch.nn.Module):
     def __init__(self, requires_grad=False, pretrained=True):
         super(vgg16, self).__init__()
-        vgg_pretrained_features = models.vgg16(pretrained=pretrained).features
+        weights = models.VGG16_Weights.IMAGENET1K_V1 if pretrained else None
+        vgg_pretrained_features = models.vgg16(weights=weights).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -117,3 +128,17 @@ def normalize_tensor(x,eps=1e-10):
 def spatial_average(x, keepdim=True):
     return x.mean([2,3],keepdim=keepdim)
 
+
+class LPIPS_Video:
+    def __init__(self,
+                 lpips: nn.Module):
+
+        self._lpips = lpips
+
+    def __call__(self,
+                 real_videos: torch.Tensor,
+                 gen_videos: torch.Tensor) -> torch.Tensor:
+
+        lpips_per_frame = self._lpips(real_videos, gen_videos).squeeze()
+        lpips_per_video = torch.mean(lpips_per_frame, dim=1)
+        return lpips_per_video

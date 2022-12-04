@@ -1,9 +1,10 @@
 import torch
 import torch as th
-import psnr
-import ssim
-import lpips_video
-import frechet_video_distance as fvd
+from fevd_vqvae.utils.dataset import unnormalize
+import fevd_vqvae.metrics.lpips as lpips
+import fevd_vqvae.metrics.psnr as psnr
+import fevd_vqvae.metrics.ssim as ssim
+import fevd_vqvae.metrics.frechet_video_distance as fvd
 
 class MetricsTracker:
     def __init__(self,
@@ -12,7 +13,7 @@ class MetricsTracker:
 
         self.PSNR_metric = psnr.PSNR(max_val)
         self.SSIM_metric = ssim.SSIM(max_val)
-        self.LPIPS_metric = lpips_video.LPIPS_Video(max_val, normalize)
+        self.LPIPS_metric = lpips.LPIPS_Video(max_val, normalize)
         self.FVD_metric = fvd.FVD(max_val, normalize)
         self.reset()
 
@@ -34,6 +35,9 @@ class MetricsTracker:
         B = real_videos.shape[0]
         self._total_videos += B
         self._total_updates += 1
+
+        real_videos = unnormalize(real_videos)
+        gen_videos = unnormalize(gen_videos)
 
         mini_batch_video_psnr = self.PSNR_metric(real_videos, gen_videos)
         self._batch_psnr += th.sum(mini_batch_video_psnr)
@@ -59,7 +63,7 @@ class MetricsTracker:
                 "FVD": self._batch_fvd}
 
 
-tracker = MetricsTracker()
+"""tracker = MetricsTracker()
 for epoch in range(5):
     tracker.reset()
     for mb in range(20):
@@ -68,4 +72,4 @@ for epoch in range(5):
         tracker.update(real_videos, gen_videos)
 
     epoch_metrics = tracker.compute()
-    print(epoch_metrics)
+    print(epoch_metrics)"""
