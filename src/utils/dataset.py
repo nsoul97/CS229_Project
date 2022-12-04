@@ -1,20 +1,52 @@
 import torch.utils.data as data
 import torch
-import torchvision.transforms.functional as F
 import numpy as np
 import pandas as pd
+from typing import List
+from torch.types import Device
 import os
 
-_statistics = {'mean': [0.49479052, 0.43942894, 0.37342495],
-               'std': [0.22488086, 0.22304802, 0.21666281]}
+_statistics = {'mean': [0.4947905177456989, 0.4394289448514622, 0.3734249455050442],
+               'std': [0.2248808632122409, 0.2230480187693433, 0.2166628109431439]}
+
+
+def _mean_std_2_tensors(mean: List[float],
+                        std: List[float],
+                        target_shape_dim: int,
+                        device: Device):
+    mean = torch.tensor(mean, device=device)
+    std = torch.tensor(std, device=device)
+
+    if target_shape_dim == 3:  # image single example (C, H, W)
+        mean = mean.reshape(-1, 1, 1)
+        std = std.reshape(-1, 1, 1)
+
+    elif target_shape_dim == 4:  # images batched examples (B, C, H, W) | video single example: (T, C, H, W)
+        mean = mean.reshape(1, -1, 1, 1)
+        std = std.reshape(1, -1, 1, 1)
+
+    elif target_shape_dim == 5:  # videos batched examples (B, T, C, H, W)
+        mean = mean.reshape(1, 1, -1, 1, 1)
+        std = std.reshape(1, 1, -1, 1, 1)
+
+    return mean, std
 
 
 def unnormalize(frames: torch.Tensor,
                 normalize_statistics: bool = True):
-
     if normalize_statistics:
-        frames.mul_(_statistics['std']).add_(_statistics['mean'])
-    frames.clamp_(min=0., max=1.)
+        mean, std = _mean_std_2_tensors(_statistics['mean'], _statistics['std'], len(frames.shape), frames.device)
+        frames = frames * std + mean
+    frames = torch.clamp(frames, min=0., max=1.)
+    return frames
+
+
+def normalize(frames: torch.Tensor,
+              normalize_statistics: bool = True):
+    frames /= 255.
+    if normalize_statistics:
+        mean, std = _mean_std_2_tensors(_statistics['mean'], _statistics['std'], len(frames.shape), frames.device)
+        frames = (frames - mean) / std
     return frames
 
 
@@ -49,20 +81,13 @@ class RobonetImgDataset(data.Dataset):
     def __len__(self):
         return len(self._data)
 
-    def _normalize(self,
-                   frame: torch.Tensor):
-        frame /= 255.
-        if self._normalize_statistics:
-            frame = F.normalize(frame, mean=_statistics['mean'], std=_statistics['std'])
-        return frame
-
     def __getitem__(self, idx):
         file_name, frame = self._data[idx]
         file_path = os.path.join(self._split_dir_path, file_name)
         video = np.load(file_path).astype(float)
         frame = torch.from_numpy(video[frame])
         frame = torch.permute(frame, [2, 0, 1])
-        frame = self._normalize(frame)
+        frame = normalize(frame, self._normalize_statistics)
         return frame
 
 
@@ -76,7 +101,7 @@ class RobonetVideoDataset(data.Dataset):
 
         assert split in ['train', 'val', 'test'], "The split can be either 'train', 'val' or 'test'."
         assert (use_only_frames is None) or (use_only_frames >= total_frames), f"The total frames that are used for " \
-                                                                               f"video prediction cannot be less "    \
+                                                                               f"video prediction cannot be less " \
                                                                                f"than the frames that we are using."
 
         self._split_dir_path = os.path.join(root_dir_path, "video_data", split)
@@ -103,35 +128,30 @@ class RobonetVideoDataset(data.Dataset):
     def __len__(self):
         return len(self._data)
 
-    def _normalize(self,
-                   video_segment: torch.Tensor):
-        video_segment /= 255.
-        if self._normalize_statistics:
-            video_segment = F.normalize(video_segment, mean=_statistics['mean'], std=_statistics['std'])
-        return video_segment
-
     def __getitem__(self, idx):
         file_name, start_frame_idx = self._data[idx]
         file_path = os.path.join(self._split_dir_path, file_name)
         video = np.load(file_path).astype(float)
-        video_segment = torch.from_numpy(video[start_frame_idx: start_frame_idx+self._total_frames])
-        video_segment = self._normalize(video_segment)
+        video_segment = torch.from_numpy(video[start_frame_idx: start_frame_idx + self._total_frames])
+        video_segment = torch.permute(video_segment, [0, 3, 1, 2])
+        video_segment = normalize(video_segment, self._normalize_statistics)
         return video_segment
 
 
-root_dir_path = "/home/soul/Development/Stanford/Fall 2022/CS 229: Machine Learning/Project/data/dataset/preprocessed_data"
-dataset = RobonetImgDataset(root_dir_path=root_dir_path,
-                        split="train")
+if __name__ == '__main__':
+    from tqdm import tqdm
 
-from tqdm import tqdm
-true_mean = _statistics['mean'].reshape(-1, 1, 1)
-rgb_mean = torch.zeros(3)
-rgb_variance = torch.zeros(3)
-for i in tqdm(range(len(dataset))):
-    img = dataset[i]
-    rgb_mean += torch.mean(img, dim=[1, 2]) / len(dataset)
-    rgb_variance += torch.mean((img - true_mean)**2, dim=[1, 2]) / len(dataset)
-rgb_std = torch.sqrt(rgb_variance)
+    root_dir_path = "/home/soul/Development/Stanford/Fall 2022/CS 229: Machine Learning/Project/data/dataset/preprocessed_data"
+    dataset = RobonetImgDataset(root_dir_path=root_dir_path,
+                                split="train")
 
-print(rgb_mean, rgb_std)
+    true_mean = torch.tensor(_statistics['mean']).reshape(-1, 1, 1)
+    rgb_mean = torch.zeros(3)
+    rgb_variance = torch.zeros(3)
+    for i in tqdm(range(len(dataset))):
+        img = dataset[i]
+        rgb_mean += torch.mean(img, dim=[1, 2]) / len(dataset)
+        rgb_variance += torch.mean((img - true_mean) ** 2, dim=[1, 2]) / len(dataset)
+    rgb_std = torch.sqrt(rgb_variance)
 
+    print(rgb_mean, rgb_std)

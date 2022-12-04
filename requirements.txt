@@ -10,3 +10,4 @@ h5py
 pandas
 opencv-python
 imageio
+moviepy
