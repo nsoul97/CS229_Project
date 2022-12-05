@@ -131,14 +131,14 @@ def spatial_average(x, keepdim=True):
 
 class LPIPS_Video:
     def __init__(self,
-                 lpips: nn.Module):
+                 lpips_model: nn.Module):
 
-        self._lpips = lpips
+        self._lpips_model = lpips_model
 
     def __call__(self,
                  real_videos: torch.Tensor,
                  gen_videos: torch.Tensor) -> torch.Tensor:
 
-        lpips_per_frame = self._lpips(real_videos, gen_videos).squeeze()
+        lpips_per_frame = self._lpips_model(real_videos, gen_videos).squeeze()
         lpips_per_video = torch.mean(lpips_per_frame, dim=1)
         return lpips_per_video

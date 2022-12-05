@@ -1,66 +1,74 @@
 import torch
-import torch as th
+import torch.nn as nn
 from fevd_vqvae.utils.dataset import unnormalize
 import fevd_vqvae.metrics.lpips as lpips
 import fevd_vqvae.metrics.psnr as psnr
 import fevd_vqvae.metrics.ssim as ssim
 import fevd_vqvae.metrics.frechet_video_distance as fvd
+import torch.types
 
 class MetricsTracker:
     def __init__(self,
-                 max_val: int = 1,
-                 normalize: bool = True) -> None:
+                 lpips_model: nn.Module,
+                 inception_i3d_model: nn.Module,
+                 batch_size: int,
+                 device: torch.types.Device) -> None:
 
-        self.PSNR_metric = psnr.PSNR(max_val)
-        self.SSIM_metric = ssim.SSIM(max_val)
-        self.LPIPS_metric = lpips.LPIPS_Video(max_val, normalize)
-        self.FVD_metric = fvd.FVD(max_val, normalize)
-        self.reset()
+        self.PSNR_metric = psnr.PSNR()
+        self.SSIM_metric = ssim.SSIM(device=device)
+        self.LPIPS_metric = lpips.LPIPS_Video(lpips_model=lpips_model)
+        self.FVD_metric = fvd.FVD(inception_i3d_model=inception_i3d_model,
+                                  batch_size=batch_size)
+        self._batch_size = batch_size
+        self._reset()
 
-    def reset(self) -> None:
+    def _reset(self) -> None:
         self._total_videos = 0
-        self._total_updates = 0
-
         self._batch_psnr = 0
         self._batch_ssim = 0
         self._batch_lpips = 0
-        self._batch_fvd = 0
 
-    @torch.inference_mode()
     def update(self,
-               real_videos: th.Tensor,
-               gen_videos: th.Tensor) -> None:
+               real_videos: torch.Tensor,
+               gen_videos: torch.Tensor) -> None:
 
         assert real_videos.shape == gen_videos.shape
         B = real_videos.shape[0]
         self._total_videos += B
-        self._total_updates += 1
 
         real_videos = unnormalize(real_videos)
+        torch.clamp(real_videos, 0., 1.)
+
         gen_videos = unnormalize(gen_videos)
+        torch.clamp(gen_videos, 0., 1.)
 
         mini_batch_video_psnr = self.PSNR_metric(real_videos, gen_videos)
-        self._batch_psnr += th.sum(mini_batch_video_psnr)
+        self._batch_psnr += torch.sum(mini_batch_video_psnr)
 
         mini_batch_video_ssim = self.SSIM_metric(real_videos, gen_videos)
-        self._batch_ssim += th.sum(mini_batch_video_ssim)
+        self._batch_ssim += torch.sum(mini_batch_video_ssim)
 
         mini_batch_video_lpips = self.LPIPS_metric(real_videos, gen_videos)
-        self._batch_lpips += th.sum(mini_batch_video_lpips)
+        self._batch_lpips += torch.sum(mini_batch_video_lpips)
 
-        mini_batch_fvd = self.FVD_metric(real_videos, gen_videos)
-        self._batch_fvd += mini_batch_fvd
+        self._batch_fvd = self.FVD_metric(real_videos, gen_videos)
 
     def compute(self) -> dict:
+
+        assert self._total_videos == self._batch_size, f"The statistics can only be computed after a full mini-batch of " \
+                                                       f"size {self._batch_size} (currently total_videos={self._total_videos})."
+
         self._batch_psnr /= self._total_videos
         self._batch_ssim /= self._total_videos
         self._batch_lpips /= self._total_videos
-        self._batch_fvd /= self._total_updates
 
-        return {'PSNR': self._batch_psnr.item(),
+        log =  {'PSNR': self._batch_psnr.item(),
                 "SSIM": self._batch_ssim.item(),
                 "LPIPS": self._batch_lpips.item(),
                 "FVD": self._batch_fvd}
+
+        self._reset()
+        return log
 
 
 """tracker = MetricsTracker()

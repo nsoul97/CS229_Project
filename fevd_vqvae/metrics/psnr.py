@@ -1,10 +1,10 @@
-import torch as th
+import torch
+import math
 
 
 class PSNR:
     def __init__(self,
-                 max_val: int,
-                 device: str = 'cuda' if th.cuda.is_available() else 'cpu') -> None:
+                 max_val: float = 1.) -> None:
         """
         The PSNR for a single frame is computed as 10 * log10( MAX ^ 2 / MSE), where:
         - MAX: the maximum value possible pixel value of an image (e.g. 1 or 255)
@@ -14,12 +14,11 @@ class PSNR:
 
         :param max_val: The maximum possible pixel value of an image.
         """
-        self._max_val = th.FloatTensor([max_val]).to(device)
-        self._device = device
+        self._log10_max_val = 20 * math.log10(max_val)
 
     def __call__(self,
-                 real_videos: th.Tensor,
-                 gen_videos: th.Tensor) -> th.Tensor:
+                 real_videos: torch.Tensor,
+                 gen_videos: torch.Tensor) -> torch.Tensor:
         """
         Compute the Peak-Signal-to-Noise-Ratio metric for a set of real and generated videos.
 
@@ -28,16 +27,13 @@ class PSNR:
         :return: A 1D tensor with length B, where the i-th value of the tensor indicates the PSNR of the i-th video.
         """
 
-        real_videos = real_videos.to(self._device)
-        gen_videos = gen_videos.to(self._device)
-
-        mse = th.mean((real_videos - gen_videos) ** 2, dim=(2, 3, 4))
-        psnr_score_per_frame = 20. * th.log10(self._max_val) - 10 * th.log10(mse)
-        psnr_score_per_video = th.mean(psnr_score_per_frame, dim=1)
+        mse = torch.mean((real_videos - gen_videos) ** 2, dim=(2, 3, 4))
+        psnr_score_per_frame = self._log10_max_val - 10 * torch.log10(mse)
+        psnr_score_per_video = torch.mean(psnr_score_per_frame, dim=1)
         return psnr_score_per_video
 
 
-import tensorflow as tf
+"""import tensorflow as tf
 import numpy as np
 import torch
 
@@ -55,4 +51,4 @@ gen_vid = gen_vid.transpose([0, 1, 3, 4, 2]).reshape([-1, 16, 16, 3])
 
 tf_psnr_per_frame = tf.image.psnr(real_vid, gen_vid, 1.0).numpy().reshape([2, 4])
 tf_psnr = np.mean(tf_psnr_per_frame, axis=1)
-print(mine_pnsr, tf_psnr)
+print(mine_pnsr, tf_psnr)"""

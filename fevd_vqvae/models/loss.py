@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from fevd_vqvae.metrics.lpips import LPIPS
+from fevd_vqvae.metrics.frechet_video_distance import InceptionI3d
 
 
 class VQLoss(nn.Module):
@@ -17,7 +18,7 @@ class VQLoss(nn.Module):
         self.perceptual_weight_3d = perceptual_weight_3d
 
         self.perceptual_loss_2d = LPIPS().eval()
-        self.perceptual_loss_3d = None
+        self.perceptual_loss_3d = InceptionI3d().eval()
 
     def forward(self, codebook_loss, inputs, reconstructions):
         rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
