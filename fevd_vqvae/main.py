@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import random
 from typing import Dict
+from fevd_vqvae.utils import Logger, Checkpoint
+from fevd_vqvae.models import VQModel
 
 
 def seed_everything(seed: int):
@@ -21,13 +23,13 @@ def get_parser_config() -> Dict:
         "--data_name",
         type=str,
         nargs=1,
-        default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "data")),
+        default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "data", "dataset", "preprocessed_data")),
         help="data directory name"
     )
 
     parser.add_argument(
         "-ckpt",
-        "--ckpt_name",
+        "--checkpoint_name",
         type=str,
         nargs=1,
         default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "checkpoints")),
@@ -44,21 +46,12 @@ def get_parser_config() -> Dict:
     )
 
     parser.add_argument(
-        '-mc',
-        '--model_config_name',
+        '-cfg',
+        '--config_name',
         type=str,
         nargs=1,
-        default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "model_configs", '2d_vqgan.yaml')),
+        default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "configs", 'baseline.yaml')),
         help="model configuration file name"
-    )
-
-    parser.add_argument(
-        '-dc',
-        '--data_config_name',
-        type=str,
-        nargs=1,
-        default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "data_configs", 'robonet.yaml')),
-        help="dataset configuration file name"
     )
 
     parser.add_argument(
@@ -77,19 +70,80 @@ def get_parser_config() -> Dict:
         help="random seed"
     )
 
+    parser.add_argument(
+        "-d",
+        "--device",
+        type=str,
+        default='cuda' if torch.cuda.is_available() else 'cpu',
+        help="random seed"
+    )
+
     return vars(parser.parse_args())
 
 
+def get_cfg_file_name(config_file_path: str) -> str:
+    config_file_name = os.path.split(config_file_path)[-1]
+    cfg_file_name = config_file_name.split('.')[0]
+    return cfg_file_name
+
+
+def verify_logs_ckpt_delete(log_dir_path: str,
+                            ckpt_base_dir_path: str,
+                            cfg_name: str):
+    checkpoint_path = os.path.join(ckpt_base_dir_path, cfg_name)
+    log_path = os.path.join(log_dir_path, cfg_name)
+
+    if os.path.exists(checkpoint_path):
+        assert os.path.exists(log_path), f"The checkpoints of the {cfg_name} configuration exist, but the logs do not."
+        print(f"The logs and the checkpoints for the {cfg_name} will be deleted!!")
+        print("Do you want to continue?(y/n)")
+        ans = input().lower()
+        if ans != 'y':
+            exit()
+    else:
+        assert not os.path.exists(log_path), f"The logs of the {cfg_name} configuration exist, but the checkpoints " \
+                                             f"do not."
+
+
 def main(parser_config: Dict,
-         model_config: Dict,
-         data_config: Dict):
-    return None
+         model_cfg_dict: Dict,
+         train_cfg_dict: Dict):
+    cfg_file_name = get_cfg_file_name(parser_config['config_name'])
+
+    if parser_config['resume'] is not None:
+        verify_logs_ckpt_delete(log_dir_path=parser_config['log_name'],
+                                ckpt_base_dir_path=parser_config['config_name'],
+                                cfg_name=cfg_file_name)
+
+    logger = Logger(log_dir_path=parser_config['log_name'],
+                    log_file_name=cfg_file_name,
+                    resume=parser_config['resume'])
+
+    checkpoint_logger = Checkpoint(ckpt_base_dir_path=parser_config['checkpoint_name'],
+                                   ckpt_cfg_name=cfg_file_name,
+                                   resume=parser_config['resume'])
+
+    # train_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'])
+    # eval_dataloaders = setup_dataloader(root_dir_path=parser_config['data_name'])
+
+    #metrics_trackers = setup_metrics_trackers()
+
+    # model = VQModel(**model_cfg_dict)
+
+    for step in range(1, train_cfg_dict['total_steps']+1):
+        if step % train_cfg_dict['eval_freq'] == 0:
+            # eval()
+            #log
+            pass
+        break
+
 
 
 if __name__ == '__main__':
-    parser_config = get_parser_config()
-    model_config = OmegaConf.load(parser_config['model_config_name'])
-    data_config = OmegaConf.load(parser_config['data_config_name'])
+    parser_dict = get_parser_config()
+    cfg_dict = OmegaConf.load(parser_dict['config_name'])
+    model_cfg_dict = cfg_dict['model']
+    train_cfg_dict = cfg_dict['train']
 
-    seed_everything(parser_config['seed'])
-    main(parser_config, model_config, data_config)
+    seed_everything(parser_dict['seed'])
+    main(parser_dict, model_cfg_dict, train_cfg_dict)
