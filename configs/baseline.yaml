@@ -26,20 +26,19 @@ setup:
   total_steps: 3e5
   learning_rate: 5e-4
   eval_freq: 1000
-  eval_splits: [val]
+  eval_splits: [val, test]
+  grad_updates_per_step: 12
 
   train_dataloader:
-    dataset_module: RobonetVideoDataset
+    dataset_module: RobonetImgDataset
     split: train
     num_workers: 2
-    steps: 12
     batch_size: 60
 
   eval_dataloader:
-    dataset_module: RobonetImgDataset
+    dataset_module: RobonetVideoDataset
     split: [train, val, test]
     num_workers: 2
-    steps: 8
     batch_size: 32
 
   logging:

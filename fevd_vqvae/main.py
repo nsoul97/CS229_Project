@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import random
 from typing import Dict
-from fevd_vqvae.utils import Logger, Checkpoint
+from fevd_vqvae.utils import Logger, Checkpoint, setup_dataloader
 from fevd_vqvae.models import VQModel
 
 
@@ -71,11 +71,11 @@ def get_parser_config() -> Dict:
     )
 
     parser.add_argument(
-        "-d",
+        "-dvc",
         "--device",
         type=str,
         default='cuda' if torch.cuda.is_available() else 'cpu',
-        help="random seed"
+        help="device for pytorch computations"
     )
 
     return vars(parser.parse_args())
@@ -123,14 +123,15 @@ def main(parser_config: Dict,
                                    ckpt_cfg_name=cfg_file_name,
                                    resume=parser_config['resume'])
 
-    # train_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'])
-    # eval_dataloaders = setup_dataloader(root_dir_path=parser_config['data_name'])
+    train_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['train_dataloader'])
+    eval_dataloaders = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['eval_dataloader'])
 
     #metrics_trackers = setup_metrics_trackers()
 
     # model = VQModel(**model_cfg_dict)
 
-    for step in range(1, train_cfg_dict['total_steps']+1):
+    total_steps = int(train_cfg_dict['total_steps'])
+    for step in range(1, total_steps+1):
         if step % train_cfg_dict['eval_freq'] == 0:
             # eval()
             #log
@@ -143,7 +144,7 @@ if __name__ == '__main__':
     parser_dict = get_parser_config()
     cfg_dict = OmegaConf.load(parser_dict['config_name'])
     model_cfg_dict = cfg_dict['model']
-    train_cfg_dict = cfg_dict['train']
+    train_cfg_dict = cfg_dict['setup']
 
     seed_everything(parser_dict['seed'])
     main(parser_dict, model_cfg_dict, train_cfg_dict)
