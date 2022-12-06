@@ -1,26 +1,27 @@
 model:
-  params:
-    embed_dim: 192
-    n_embed: 1024
+  embed_dim: 192
+  n_embed: 1024
 
-    ddconfig:
-      double_z: False
-      z_channels: 256
-      resolution: 64
-      in_channels: 3
-      out_ch: 3
-      ch: 128
-      ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
-      num_res_blocks: 2
-      attn_resolutions: [16]
-      dropout: 0.0
+  ddconfig:
+    double_z: False
+    z_channels: 256
+    resolution: 64
+    in_channels: 3
+    out_ch: 3
+    ch: 128
+    ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
+    num_res_blocks: 2
+    attn_resolutions: [16]
+    dropout: 0.0
 
-      lossconfig:
-        codebook_weight: 1.0,
-        pixelloss_weight: 1.0,
-        perceptual_weight_2d: 1.0,
-        fvd_mu_weight: 0.0,
-        fvd_cov_weight: 0.0
+  lossconfig:
+    target: fevd_vqvae.models.loss.VQLoss
+    params:  
+      codebook_weight: 1.0
+      pixelloss_weight: 1.0
+      perceptual_weight_2d: 1.0
+      fvd_mu_weight: 0.0
+      fvd_cov_weight: 0.0
 
 setup:
   total_steps: 3e5
@@ -32,6 +33,12 @@ setup:
   train_dataloader:
     dataset_module: RobonetImgDataset
     split: train
+    num_workers: 2
+    batch_size: 60
+
+  val_dataloader:
+    dataset_module: RobonetImgDataset
+    split: val
     num_workers: 2
     batch_size: 60
 

@@ -3,3 +3,7 @@
 *__pycache__*
 logs/*
 fevd_vqvae.egg-info/*
+venv*
+build*
+checkpoints/metrics/i3d_torchscript.pt
+checkpoints/metrics/vgg.pth

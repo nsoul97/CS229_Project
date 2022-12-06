@@ -15,7 +15,7 @@ class VQModel(nn.Module):
         super().__init__()
         self.encoder = Encoder(**ddconfig)
         self.decoder = Decoder(**ddconfig)
-        self.criterion = instantiate_from_config(lossconfig)
+        self.loss = instantiate_from_config(lossconfig)
         self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25)
         self.quant_conv = nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
         self.post_quant_conv = nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
@@ -49,13 +49,14 @@ class VQModel(nn.Module):
         loss, loss_dict = self.loss(qloss, real_videos, rec_videos)
         return loss, loss_dict
 
-    def configure_optimizer(self, opt_sd=None):
+    def configure_optimizer(self, lr ,opt_sd=None):
         opt = torch.optim.Adam(list(self.encoder.parameters()) +
                                list(self.decoder.parameters()) +
                                list(self.quantize.parameters()) +
                                list(self.quant_conv.parameters()) +
                                list(self.post_quant_conv.parameters()),
-                               lr=self.learning_rate,
+                               lr=lr,
                                betas=(0.5, 0.9))
-        opt.load_state_dict(opt_sd)
+        if opt_sd is not None:
+            opt.load_state_dict(opt_sd)
         return opt
