@@ -126,13 +126,16 @@ def main(parser_config: Dict,
     train_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['train_dataloader'])
     eval_dataloaders = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['eval_dataloader'])
 
-    #metrics_trackers = setup_metrics_trackers()
+    metrics_trackers = setup_metrics_trackers(train_cfg_dict['eval_splits'])
 
     # model = VQModel(**model_cfg_dict)
 
     total_steps = int(train_cfg_dict['total_steps'])
     for step in range(1, total_steps+1):
         if step % train_cfg_dict['eval_freq'] == 0:
+            for split in train_cfg_dict['eval_splits']:
+                dataloader = eval_dataloaders[split]
+                metrics_tracker = metrics_trackers[split]
             # eval()
             #log
             pass

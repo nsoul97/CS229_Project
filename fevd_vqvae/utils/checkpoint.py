@@ -1,23 +1,24 @@
 import os
 import torch
 from typing import Tuple
-
-CKPT_DIR = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "checkpoints"))
+import shutil
 
 
 class Checkpoint:
 
     def __init__(self,
-                 config: dict):
+                 ckpt_base_dir_path: str,
+                 ckpt_cfg_name: str,
+                 resume: bool):
 
-        if not os.path.exists(CKPT_DIR):
-            os.mkdir(CKPT_DIR)
-
-        checkpoint_run_name = '__'.join([f'{k}:{v}' for k, v in config.items()])
-        self._checkpoint_run_path = os.path.join(CKPT_DIR, checkpoint_run_name)
-
-        if not os.path.exists(self._checkpoint_run_path):
-            os.mkdir(self._checkpoint_run_path)
+        self._checkpoint_path = os.path.join(ckpt_base_dir_path, ckpt_cfg_name)
+        path_exists = os.path.exists(self._checkpoint_path)
+        if resume:
+            assert path_exists, "Cannot resume training. Previous checkpoint do not exist."
+        elif path_exists:
+            shutil.rmtree(self._checkpoint_path)
+        else:
+            os.mkdir(self._checkpoint_path)
 
     def save_checkpoint(self,
                         config: dict,

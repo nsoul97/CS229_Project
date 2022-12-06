@@ -1,7 +1,7 @@
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
-from dataset import unnormalize
+from fevd_vqvae.utils.dataset import unnormalize
 import os
 import shutil
 
@@ -10,7 +10,7 @@ class Logger:
     def __init__(self,
                  log_dir_path: str,
                  log_file_name: str,
-                 resume: bool):
+                 resume: bool) -> None:
 
         if not os.path.exists(log_dir_path):
             os.makedirs(log_dir_path)
