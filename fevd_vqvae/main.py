@@ -124,21 +124,58 @@ def main(parser_config: Dict,
                                    resume=parser_config['resume'])
 
     train_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['train_dataloader'])
+    val_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['val_dataloader'])
     eval_dataloaders = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['eval_dataloader'])
 
-    metrics_trackers = setup_metrics_trackers(train_cfg_dict['eval_splits'])
+    #metrics_trackers = setup_metrics_trackers(train_cfg_dict['eval_splits'])
 
-    # model = VQModel(**model_cfg_dict)
-
+    model = VQModel(**model_cfg_dict)
+    
+    # put model in train mode
+    model.train()
+    torch.set_grad_enabled(True)
+    
+    # Get optimizer for VQModel
+    opt = model.configure_optimizer(train_cfg_dict['learning_rate'])
+    
+    #Start steps
     total_steps = int(train_cfg_dict['total_steps'])
+    print("Total steps: ", total_steps)
     for step in range(1, total_steps+1):
+        print("Step: ", step)
+        train_x, val_x = next(iter(train_dataloader)), next(iter(val_dataloader))
+        train_x, val_x = train_x.type(torch.float), val_x.type(torch.float)
+        # train step
+        loss, loss_dict = model.step(train_x)
+        # clear gradients
+        opt.zero_grad()
+        # backward
+        loss.backward()
+        # update parameters
+        opt.step()
+        with torch.no_grad():
+            val_loss, val_loss_dict = model.step(val_x)
+        #Print reconstruction loss
+        print("Step: {}, loss: {:4f}, val_loss: {:4f}".format(step, loss, val_loss))
+        
+        #Log the complete training and val image losses
+        logger._log_loss_dict(loss_dict,val_loss_dict)
+        
+        # TODO: Verify that these are correct below
+        logger._log_img_grid(train_x,"train_imgs", step, train_x.shape[0]//2)
+        logger._log_img_grid(val_x,"val_imgs", step, val_x.shape[0]//2)
+       
+        # TODO: Eval on vid with custom metrics 
         if step % train_cfg_dict['eval_freq'] == 0:
             for split in train_cfg_dict['eval_splits']:
                 dataloader = eval_dataloaders[split]
-                metrics_tracker = metrics_trackers[split]
-            # eval()
-            #log
-            pass
+                #metrics_tracker = metrics_trackers[split]
+                # eval()
+                #log
+                pass
+            # Save checkpoint every eval_freq -> Double check on this 
+            checkpoint_logger.save_checkpoint(parser_config, model.state_dict(), step)
+
         break
 
 
@@ -147,6 +184,7 @@ if __name__ == '__main__':
     parser_dict = get_parser_config()
     cfg_dict = OmegaConf.load(parser_dict['config_name'])
     model_cfg_dict = cfg_dict['model']
+    print(model_cfg_dict)
     train_cfg_dict = cfg_dict['setup']
 
     seed_everything(parser_dict['seed'])

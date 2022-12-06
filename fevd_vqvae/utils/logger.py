@@ -76,9 +76,21 @@ class Logger:
             grid = torch.cat((input_grid_imgs, reconstruction_grid_imgs), dim=0)
             self._log_img_grid(grid, f"{parition_name}/images/input_vs_reconstruction_img_grid_{i}", step, nrow=nrow)
 
-    def log_loss(self, train_loss, val_loss, step):
-        self._log_scalar(train_loss, "train/loss", step)
-        self._log_scalar(val_loss, "val/loss", step)
+    def _log_loss_dict(self, train_dict, val_dict, step):
+        """ Logs complete training and val loss dicts for a given step
+        
+        Args:
+            train_dict (dict): Dict containing training image losses
+            val_dict (dict): Dict containing validation image losses
+            step (int): Current training step
+        """
+        for k,train_loss in train_dict:
+            val_loss = val_dict[k]
+            self.log_loss(train_loss, val_loss, "train_"+k, "val_"+k, step)
+
+    def log_loss(self, train_loss, val_loss, train_name, val_name,step):
+        self._log_scalar(train_loss, train_name, step)
+        self._log_scalar(val_loss, val_name, step)
 
         self._summ_writer.flush()
 
