@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import pandas as pd
 import omegaconf
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Optional
 from torch.types import Device
 import os
 
@@ -49,12 +49,13 @@ def _setup_split_dataloader(root_dir_path: str,
                             dataset_module: str,
                             split: str,
                             num_workers: int,
-                            batch_size: int):
+                            batch_size: int,
+                            use_only_videos: Union[int, None] = None):
 
     if dataset_module == 'RobonetImgDataset':
-        dataset = RobonetImgDataset(root_dir_path=root_dir_path, split=split)
+        dataset = RobonetImgDataset(root_dir_path=root_dir_path, split=split, use_only_videos=use_only_videos)
     else:
-        dataset = RobonetVideoDataset(root_dir_path=root_dir_path, split=split)
+        dataset = RobonetVideoDataset(root_dir_path=root_dir_path, split=split, use_only_videos=use_only_videos)
 
     return data.DataLoader(dataset,
                            num_workers=num_workers,
@@ -65,7 +66,8 @@ def setup_dataloader(root_dir_path: str,
                      dataset_module: str,
                      split: Union[List[str], str],
                      num_workers: int,
-                     batch_size: int) -> Union[data.DataLoader, Dict[str, data.DataLoader]]:
+                     batch_size: int,
+                     use_only_videos: Optional[int] = None) -> Union[data.DataLoader, Dict[str, data.DataLoader]]:
 
     if (not isinstance(split, str)) and (not isinstance(split, omegaconf.listconfig.ListConfig)):
         raise TypeError(f"The split can be either str or list. not {type(split)}")
@@ -75,9 +77,9 @@ def setup_dataloader(root_dir_path: str,
                         f"{dataset_module}")
 
     if isinstance(split, str):
-        return _setup_split_dataloader(root_dir_path, dataset_module, split, num_workers, batch_size)
+        return _setup_split_dataloader(root_dir_path, dataset_module, split, num_workers, batch_size, use_only_videos)
     else:
-        return {s: _setup_split_dataloader(root_dir_path, dataset_module, s, num_workers, batch_size) for s in split}
+        return {s: _setup_split_dataloader(root_dir_path, dataset_module, s, num_workers, batch_size, use_only_videos) for s in split}
 
 
 class RobonetImgDataset(data.Dataset):
@@ -85,7 +87,8 @@ class RobonetImgDataset(data.Dataset):
     def __init__(self,
                  root_dir_path: str,
                  split: str,
-                 use_only_frames: int = 12):
+                 use_only_frames: int = 12,
+                 use_only_videos: Union[int, None] = None):
 
         super(RobonetImgDataset, self).__init__()
 
@@ -93,6 +96,7 @@ class RobonetImgDataset(data.Dataset):
 
         self._split_dir_path = os.path.join(root_dir_path, "video_data", split)
         video_files = os.listdir(self._split_dir_path)
+        if use_only_videos is not None: video_files = video_files[:use_only_videos]
 
         metadata_file_path = os.path.join(root_dir_path, "metadata.csv")
         metadata = pd.read_csv(metadata_file_path, index_col=0, low_memory=False)
@@ -115,9 +119,9 @@ class RobonetImgDataset(data.Dataset):
         file_path = os.path.join(self._split_dir_path, file_name)
         video = np.load(file_path).astype(float)
         frame = torch.from_numpy(video[frame])
-        frame = torch.permute(frame, [2, 0, 1]).to(memory_format=torch.contiguous_format)
+        frame = torch.permute(frame, [2, 0, 1]).to(memory_format=torch.contiguous_format).float()
         frame /= 255.
-        frame = normalize(frame).float()
+        frame = normalize(frame)
         return frame
 
 
@@ -126,7 +130,8 @@ class RobonetVideoDataset(data.Dataset):
                  root_dir_path: str,
                  split: str,
                  use_only_frames: int = 12,
-                 total_frames: int = 12):
+                 total_frames: int = 12,
+                 use_only_videos: Union[int, None] = None):
 
         super(RobonetVideoDataset, self).__init__()
 
@@ -137,6 +142,7 @@ class RobonetVideoDataset(data.Dataset):
 
         self._split_dir_path = os.path.join(root_dir_path, "video_data", split)
         video_files = os.listdir(self._split_dir_path)
+        if use_only_videos is not None: video_files = video_files[:use_only_videos]
 
         metadata_file_path = os.path.join(root_dir_path, "metadata.csv")
         metadata = pd.read_csv(metadata_file_path, index_col=0, low_memory=False)
@@ -163,7 +169,7 @@ class RobonetVideoDataset(data.Dataset):
         file_path = os.path.join(self._split_dir_path, file_name)
         video = np.load(file_path)
         video_segment = torch.from_numpy(video[start_frame_idx: start_frame_idx + self._total_frames])
-        video_segment = torch.permute(video_segment, [0, 3, 1, 2]).to(memory_format=torch.contiguous_format)
+        video_segment = torch.permute(video_segment, [0, 3, 1, 2]).to(memory_format=torch.contiguous_format).float()
         video_segment /= 255.
-        video_segment = normalize(video_segment).float()
+        video_segment = normalize(video_segment)
         return video_segment

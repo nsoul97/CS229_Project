@@ -1,4 +1,5 @@
 model:
+  key: 2d
   embed_dim: 192
   n_embed: 1024
 
@@ -22,26 +23,30 @@ model:
     fvd_cov_weight: 0.0
 
 setup:
-  total_steps: 3e5
+  total_steps: 20 #3e5
   learning_rate: 5e-4
-  eval_freq: 1000
+  eval_freq: 1 #1000
   eval_splits: [val, test]
   grad_updates_per_step: 12
-  checkpoint: best
 
   train_dataloader:
     dataset_module: RobonetImgDataset
     split: train
     num_workers: 2
-    batch_size: 60
+    batch_size: 32
+    use_only_videos: 32
 
   eval_dataloader:
     dataset_module: RobonetVideoDataset
     split: [train, val, test]
     num_workers: 2
     batch_size: 32
+    use_only_videos: 32
 
   logging:
     imgs_per_grid: 4
     total_imgs: 8
-    videos: 2
+    num_videos: 2
+
+  checkpoint:
+    num_last_checkpoints: 2

@@ -10,6 +10,7 @@ from fevd_vqvae.models import VQModel, LossTracker
 from fevd_vqvae.metrics import MetricsTracker
 import torch.utils.data as data
 
+
 def seed_everything(seed: int):
     random.seed(seed)
     np.random.seed(seed)
@@ -23,7 +24,6 @@ def get_parser_config() -> Dict:
         "-d",
         "--data_name",
         type=str,
-        nargs=1,
         default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "data", "dataset", "preprocessed_data")),
         help="data directory name"
     )
@@ -32,7 +32,6 @@ def get_parser_config() -> Dict:
         "-ckpt",
         "--checkpoint_name",
         type=str,
-        nargs=1,
         default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "checkpoints")),
         help="checkpoint directory name"
     )
@@ -41,7 +40,6 @@ def get_parser_config() -> Dict:
         "-l",
         "--log_name",
         type=str,
-        nargs=1,
         default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "logs")),
         help="logs directory name"
     )
@@ -50,7 +48,6 @@ def get_parser_config() -> Dict:
         '-cfg',
         '--config_name',
         type=str,
-        nargs=1,
         default=os.path.abspath(os.path.join(__file__, os.pardir, os.pardir, "configs", 'baseline.yaml')),
         help="model configuration file name"
     )
@@ -59,7 +56,7 @@ def get_parser_config() -> Dict:
         "-r",
         "--resume",
         type=str,
-        nargs=1,
+        default=None,
         help="resume from the checkpoint in logdir",
     )
 
@@ -94,12 +91,14 @@ def verify_logs_ckpt_delete(log_dir_path: str,
     checkpoint_path = os.path.join(ckpt_base_dir_path, cfg_name)
     log_path = os.path.join(log_dir_path, cfg_name)
 
+    print(checkpoint_path)
     if os.path.exists(checkpoint_path):
         assert os.path.exists(log_path), f"The checkpoints of the {cfg_name} configuration exist, but the logs do not."
         print(f"The logs and the checkpoints for the {cfg_name} will be deleted!!")
         print("Do you want to continue?(y/n)")
         ans = input().lower()
         if ans != 'y':
+            print("Exiting...")
             exit()
     else:
         assert not os.path.exists(log_path), f"The logs of the {cfg_name} configuration exist, but the checkpoints " \
@@ -112,7 +111,6 @@ def eval(dataloader: data.DataLoader,
          logger: Logger,
          device: torch.device,
          step: int):
-
     metrics_tracker = MetricsTracker(lpips_model=model.loss.perceptual_loss_2d,
                                      inception_i3d_model=model.loss.inception_i3d,
                                      batch_size=len(dataloader.dataset),
@@ -132,7 +130,12 @@ def eval(dataloader: data.DataLoader,
 
     loss_log = loss_tracker.compute()
     logger.log_dict(loss_log, split, step)
-    return metrics_log
+
+    eval_log = dict()
+    for k, v in metrics_log.items():
+        eval_log[k] = v
+    eval_log['total_loss'] = loss_log['total_loss']
+    return eval_log
 
 
 def select_and_visualize_examples(model: VQModel,
@@ -142,8 +145,29 @@ def select_and_visualize_examples(model: VQModel,
                                   step: int,
                                   imgs_per_grid: int,
                                   total_imgs: int,
-                                  videos: int) -> None:
-    pass
+                                  num_videos: int,
+                                  device: torch.device) -> None:
+    real_videos = next(iter(dataloader)).to(device)
+    with torch.inference_mode():
+        rec_videos, _ = model(real_videos)
+
+    save_real_videos = real_videos[:num_videos]
+    save_rec_videos = rec_videos[:num_videos]
+
+    save_real_videos_imgs = real_videos[:total_imgs]
+    save_rec_videos_imgs = rec_videos[:total_imgs]
+
+    rand_img_ind = torch.randint(low=0,
+                                 high=real_videos.shape[1] - 1,
+                                 size=(total_imgs,))
+
+    save_real_imgs = torch.stack([save_real_videos_imgs[vid_ind, img_ind] for vid_ind, img_ind in enumerate(rand_img_ind)], dim=0)
+    save_rec_imgs = torch.stack([save_rec_videos_imgs[vid_ind, img_ind] for vid_ind, img_ind in enumerate(rand_img_ind)], dim=0)
+
+    logger.log_visualizations(split=split,
+                              input_videos=save_real_videos, reconstruction_videos=save_rec_videos,
+                              input_imgs=save_real_imgs, reconstruction_imgs=save_rec_imgs,
+                              step=step, nrow=imgs_per_grid)
 
 
 def main(parser_config: Dict,
@@ -151,9 +175,9 @@ def main(parser_config: Dict,
          train_cfg_dict: Dict):
     cfg_file_name = get_cfg_file_name(parser_config['config_name'])
 
-    if parser_config['resume'] is not None:
+    if parser_config['resume'] is None:
         verify_logs_ckpt_delete(log_dir_path=parser_config['log_name'],
-                                ckpt_base_dir_path=parser_config['config_name'],
+                                ckpt_base_dir_path=parser_config['checkpoint_name'],
                                 cfg_name=cfg_file_name)
 
     logger = Logger(log_dir_path=parser_config['log_name'],
@@ -162,11 +186,13 @@ def main(parser_config: Dict,
 
     checkpoint_logger = Checkpoint(ckpt_base_dir_path=parser_config['checkpoint_name'],
                                    ckpt_cfg_name=cfg_file_name,
-                                   resume=parser_config['resume'])
+                                   resume=parser_config['resume'],
+                                   **train_cfg_dict['checkpoint'])
+    ckpt_dict = checkpoint_logger.load_checkpoint(parser_config['resume'])
 
     device = torch.device(parser_config['device'])
-    model = VQModel(**model_cfg_dict).to(device)
-    opt = model.configure_optimizer(train_cfg_dict['learning_rate'])  # get optimizer for VQModel
+    model = VQModel(**model_cfg_dict, ckpt_sd=ckpt_dict['model_state_dict']).to(device)
+    opt = model.configure_optimizer(train_cfg_dict['learning_rate'], opt_sd=ckpt_dict['opt_state_dict'])  # get optimizer for VQModel
 
     train_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['train_dataloader'])
     train_loss_tracker = LossTracker(total_steps=train_cfg_dict['grad_updates_per_step'])
@@ -179,9 +205,9 @@ def main(parser_config: Dict,
 
     train_dataloader_iter = iter(train_dataloader)
     total_steps = int(train_cfg_dict['total_steps'])
-    step = 0
+    step = ckpt_dict['step']
     small_step = 0
-    while step < total_steps:       #Start steps
+    while step < total_steps:  # Start steps
 
         try:
             x = next(train_dataloader_iter)
@@ -191,14 +217,14 @@ def main(parser_config: Dict,
 
         x = x.to(device)
 
-        _, loss, loss_log = model.step(x)                       # train step
+        _, loss, loss_log = model.step(x)  # train step
         train_loss_tracker.update(loss_log)
-        loss = loss / train_cfg_dict['grad_updates_per_step']   # normalize the loss for gradient accumulation
-        loss.backward()                                         # backward
+        loss = loss / train_cfg_dict['grad_updates_per_step']  # normalize the loss for gradient accumulation
+        loss.backward()  # backward
 
         small_step += 1
         if small_step == train_cfg_dict['grad_updates_per_step']:
-            opt.step()       # update parameters
+            opt.step()  # update parameters
             opt.zero_grad()  # clear gradients
             small_step = 0
             step += 1
@@ -206,29 +232,34 @@ def main(parser_config: Dict,
             logger.log_dict(log_dict=step_loss_dict, split='train', step=step)
 
             if step % train_cfg_dict['eval_freq'] == 0:
+                print(f"Step {step}: Evaluating...")
                 model.eval()
 
-                for split, dataloader in eval_dataloaders:
-                    # TODO
+                for split, dataloader in eval_dataloaders.items():
                     select_and_visualize_examples(model=model,
                                                   dataloader=dataloader,
                                                   split=split,
                                                   logger=logger,
                                                   step=step,
+                                                  device=device,
                                                   **train_cfg_dict['logging'])
 
                 for split in train_cfg_dict['eval_splits']:
-                    eval(dataloader=eval_dataloaders[split],
-                         logger=logger,
-                         split=split,
-                         step=step)
+                    log = eval(dataloader=eval_dataloaders[split],
+                               model=model,
+                               logger=logger,
+                               split=split,
+                               step=step,
+                               device=device)
 
-                # TODO save the checkpoint if the metric is the best
-                checkpoint_logger.save_checkpoint(parser_config, model.state_dict(), step)
+                    if split == 'val': val_log = log
+
+                checkpoint_logger.save_checkpoint(model_state_dict=model.state_dict(),
+                                                  opt_state_dict=opt.state_dict(),
+                                                  val_log=val_log,
+                                                  step=step)
 
                 model.train()
-
-        break
 
 
 if __name__ == '__main__':

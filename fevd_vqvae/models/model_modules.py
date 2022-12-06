@@ -233,7 +233,6 @@ class Encoder(nn.Module):
                                         padding=1)
 
     def forward(self, x):
-        #assert x.shape[2] == x.shape[3] == self.resolution, "{}, {}, {}".format(x.shape[2], x.shape[3], self.resolution)
 
         # timestep embedding
         temb = None
@@ -333,7 +332,6 @@ class Decoder(nn.Module):
                                         padding=1)
 
     def forward(self, z):
-        #assert z.shape[1:] == self.z_shape[1:]
         self.last_z_shape = z.shape
 
         # timestep embedding

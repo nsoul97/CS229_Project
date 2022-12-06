@@ -29,10 +29,10 @@ class Logger:
     def _log_scalar(self, scalar, name, step):
         self._summ_writer.add_scalar(name, scalar, step)
 
-    def _log_videos(self, video_frames, name, step, fps):
+    def _log_videos(self, video_frames, name, step):
         assert len(video_frames.shape) == 5 and video_frames.shape[2] == 3, \
             "Need [N, T, C, H, W] input tensor for video logging!"
-        self._summ_writer.add_video(name, video_frames, step, fps=fps)
+        self._summ_writer.add_video(name, video_frames, step, fps=10)
 
     def _log_img_grid(self, images, name, step, nrow):
         assert len(images.shape) == 4 and images.shape[1] == 3, \
@@ -41,8 +41,10 @@ class Logger:
         img_grid = make_grid(images, nrow=nrow)
         self._summ_writer.add_image(name, img_grid, step)
 
-    def _log_partition_visualizations(self, parition_name, input_videos, reconstruction_videos, input_imgs,
-                                      reconstruction_imgs, step, fps, nrow):
+    def log_visualizations(self, split,
+                           input_videos, reconstruction_videos,
+                           input_imgs, reconstruction_imgs,
+                           step, nrow):
 
         assert input_videos.shape == reconstruction_videos.shape, "The input videos and the reconstruction videos must " \
                                                                   "have the same shape."
@@ -69,13 +71,15 @@ class Logger:
             input_video = input_videos[i]
             reconstruction_video = reconstruction_videos[i]
             video = torch.stack((input_video, reconstruction_video), dim=0)
-            self._log_videos(video, f"{parition_name}/input_vs_reconstruction_video_{i}", step, fps)
+            self._log_videos(video, f"{split}/input_vs_reconstruction_video_{i}", step)
 
         for i in range(0, len(input_imgs), nrow):
             input_grid_imgs = input_imgs[i:i + nrow]
             reconstruction_grid_imgs = reconstruction_imgs[i:i + nrow]
             grid = torch.cat((input_grid_imgs, reconstruction_grid_imgs), dim=0)
-            self._log_img_grid(grid, f"{parition_name}/images/input_vs_reconstruction_img_grid_{i}", step, nrow=nrow)
+            self._log_img_grid(grid, f"{split}/images/input_vs_reconstruction_img_grid_{i}", step, nrow=nrow)
+
+        self._summ_writer.flush()
 
     def log_dict(self,
                  log_dict: Dict[str, float],
@@ -90,28 +94,5 @@ class Logger:
         """
         for k, v in log_dict.items():
             self._log_scalar(v, f"{split}/{k}", step)
-
-        self._summ_writer.flush()
-
-    def log_visualizations(self,
-                           train_input_videos, train_reconstruction_videos, train_input_imgs, train_reconstruction_imgs,
-                           val_input_videos, val_reconstruction_videos, val_input_imgs, val_reconstruction_imgs,
-                           test_input_videos, test_reconstruction_videos, test_input_imgs, test_reconstruction_imgs,
-                           step, normalized_statistics=True, fps=10, nrow=4):
-
-        self._log_partition_visualizations("train",
-                                           train_input_videos, train_reconstruction_videos,
-                                           train_input_imgs, train_reconstruction_imgs,
-                                           step, normalized_statistics, fps, nrow)
-
-        self._log_partition_visualizations("val",
-                                           val_input_videos, val_reconstruction_videos,
-                                           val_input_imgs, val_reconstruction_imgs,
-                                           step, normalized_statistics, fps, nrow)
-
-        self._log_partition_visualizations("test",
-                                           test_input_videos, test_reconstruction_videos,
-                                           test_input_imgs, test_reconstruction_imgs,
-                                           step, normalized_statistics, fps, nrow)
 
         self._summ_writer.flush()
