@@ -3,6 +3,7 @@ import torch.nn as nn
 from fevd_vqvae.models.model_modules import Encoder, Decoder
 from fevd_vqvae.models.vector_quantizer import VectorQuantizer
 from fevd_vqvae.models.utils import instantiate_from_config
+from fevd_vqvae.models.loss import VQLoss
 
 
 class VQModel(nn.Module):
@@ -15,7 +16,7 @@ class VQModel(nn.Module):
         super().__init__()
         self.encoder = Encoder(**ddconfig)
         self.decoder = Decoder(**ddconfig)
-        self.loss = instantiate_from_config(lossconfig)
+        self.loss = VQLoss(**lossconfig)
         self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25)
         self.quant_conv = nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
         self.post_quant_conv = nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
@@ -47,7 +48,7 @@ class VQModel(nn.Module):
     def step(self, real_videos):
         rec_videos, qloss = self(real_videos)
         loss, loss_dict = self.loss(qloss, real_videos, rec_videos)
-        return loss, loss_dict
+        return rec_videos, loss, loss_dict
 
     def configure_optimizer(self, lr ,opt_sd=None):
         opt = torch.optim.Adam(list(self.encoder.parameters()) +

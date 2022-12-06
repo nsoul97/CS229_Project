@@ -15,13 +15,11 @@ model:
     dropout: 0.0
 
   lossconfig:
-    target: fevd_vqvae.models.loss.VQLoss
-    params:  
-      codebook_weight: 1.0
-      pixelloss_weight: 1.0
-      perceptual_weight_2d: 1.0
-      fvd_mu_weight: 0.0
-      fvd_cov_weight: 0.0
+    codebook_weight: 1.0
+    pixelloss_weight: 1.0
+    perceptual_weight_2d: 1.0
+    fvd_mu_weight: 0.0
+    fvd_cov_weight: 0.0
 
 setup:
   total_steps: 3e5
@@ -29,16 +27,11 @@ setup:
   eval_freq: 1000
   eval_splits: [val, test]
   grad_updates_per_step: 12
+  checkpoint: best
 
   train_dataloader:
     dataset_module: RobonetImgDataset
     split: train
-    num_workers: 2
-    batch_size: 60
-
-  val_dataloader:
-    dataset_module: RobonetImgDataset
-    split: val
     num_workers: 2
     batch_size: 60
 
@@ -49,7 +42,6 @@ setup:
     batch_size: 32
 
   logging:
-    save: ['best', 'last']
     imgs_per_grid: 4
     total_imgs: 8
     videos: 2

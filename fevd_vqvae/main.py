@@ -6,8 +6,9 @@ import torch
 import random
 from typing import Dict
 from fevd_vqvae.utils import Logger, Checkpoint, setup_dataloader
-from fevd_vqvae.models import VQModel
-
+from fevd_vqvae.models import VQModel, LossTracker
+from fevd_vqvae.metrics import MetricsTracker
+import torch.utils.data as data
 
 def seed_everything(seed: int):
     random.seed(seed)
@@ -105,6 +106,46 @@ def verify_logs_ckpt_delete(log_dir_path: str,
                                              f"do not."
 
 
+def eval(dataloader: data.DataLoader,
+         model: VQModel,
+         split: str,
+         logger: Logger,
+         device: torch.device,
+         step: int):
+
+    metrics_tracker = MetricsTracker(lpips_model=model.loss.perceptual_loss_2d,
+                                     inception_i3d_model=model.loss.inception_i3d,
+                                     batch_size=len(dataloader.dataset),
+                                     device=device)
+
+    loss_tracker = LossTracker(total_steps=len(dataloader))
+
+    for video_inputs in dataloader:
+        video_inputs = video_inputs.to(device)
+        with torch.inference_mode():
+            video_reconstructions, _, loss_log = model.step(video_inputs)
+        metrics_tracker.update(video_inputs, video_reconstructions)
+        loss_tracker.update(loss_log)
+
+    metrics_log = metrics_tracker.compute()
+    logger.log_dict(metrics_log, split, step)
+
+    loss_log = loss_tracker.compute()
+    logger.log_dict(loss_log, split, step)
+    return metrics_log
+
+
+def select_and_visualize_examples(model: VQModel,
+                                  dataloader: data.DataLoader,
+                                  split: str,
+                                  logger: Logger,
+                                  step: int,
+                                  imgs_per_grid: int,
+                                  total_imgs: int,
+                                  videos: int) -> None:
+    pass
+
+
 def main(parser_config: Dict,
          model_cfg_dict: Dict,
          train_cfg_dict: Dict):
@@ -123,68 +164,77 @@ def main(parser_config: Dict,
                                    ckpt_cfg_name=cfg_file_name,
                                    resume=parser_config['resume'])
 
+    device = torch.device(parser_config['device'])
+    model = VQModel(**model_cfg_dict).to(device)
+    opt = model.configure_optimizer(train_cfg_dict['learning_rate'])  # get optimizer for VQModel
+
     train_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['train_dataloader'])
-    val_dataloader = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['val_dataloader'])
+    train_loss_tracker = LossTracker(total_steps=train_cfg_dict['grad_updates_per_step'])
+
     eval_dataloaders = setup_dataloader(root_dir_path=parser_config['data_name'], **train_cfg_dict['eval_dataloader'])
+    for split in train_cfg_dict['eval_splits']:
+        if len(eval_dataloaders[split].dataset) % eval_dataloaders[split].batch_size != 0:
+            raise ValueError(f"The batch size of the {split} DataLoader must divide the length of the "
+                             f"dataset {len(eval_dataloaders[split].dataset)}")
 
-    #metrics_trackers = setup_metrics_trackers(train_cfg_dict['eval_splits'])
-
-    model = VQModel(**model_cfg_dict)
-    
-    # put model in train mode
-    model.train()
-    torch.set_grad_enabled(True)
-    
-    # Get optimizer for VQModel
-    opt = model.configure_optimizer(train_cfg_dict['learning_rate'])
-    
-    #Start steps
+    train_dataloader_iter = iter(train_dataloader)
     total_steps = int(train_cfg_dict['total_steps'])
-    print("Total steps: ", total_steps)
-    for step in range(1, total_steps+1):
-        print("Step: ", step)
-        train_x, val_x = next(iter(train_dataloader)), next(iter(val_dataloader))
-        train_x, val_x = train_x.type(torch.float), val_x.type(torch.float)
-        # train step
-        loss, loss_dict = model.step(train_x)
-        # clear gradients
-        opt.zero_grad()
-        # backward
-        loss.backward()
-        # update parameters
-        opt.step()
-        with torch.no_grad():
-            val_loss, val_loss_dict = model.step(val_x)
-        #Print reconstruction loss
-        print("Step: {}, loss: {:4f}, val_loss: {:4f}".format(step, loss, val_loss))
-        
-        #Log the complete training and val image losses
-        logger._log_loss_dict(loss_dict,val_loss_dict)
-        
-        # TODO: Verify that these are correct below
-        logger._log_img_grid(train_x,"train_imgs", step, train_x.shape[0]//2)
-        logger._log_img_grid(val_x,"val_imgs", step, val_x.shape[0]//2)
-       
-        # TODO: Eval on vid with custom metrics 
-        if step % train_cfg_dict['eval_freq'] == 0:
-            for split in train_cfg_dict['eval_splits']:
-                dataloader = eval_dataloaders[split]
-                #metrics_tracker = metrics_trackers[split]
-                # eval()
-                #log
-                pass
-            # Save checkpoint every eval_freq -> Double check on this 
-            checkpoint_logger.save_checkpoint(parser_config, model.state_dict(), step)
+    step = 0
+    small_step = 0
+    while step < total_steps:       #Start steps
+
+        try:
+            x = next(train_dataloader_iter)
+        except StopIteration:
+            train_dataloader_iter = iter(train_dataloader)
+            x = next(train_dataloader_iter)
+
+        x = x.to(device)
+
+        _, loss, loss_log = model.step(x)                       # train step
+        train_loss_tracker.update(loss_log)
+        loss = loss / train_cfg_dict['grad_updates_per_step']   # normalize the loss for gradient accumulation
+        loss.backward()                                         # backward
+
+        small_step += 1
+        if small_step == train_cfg_dict['grad_updates_per_step']:
+            opt.step()       # update parameters
+            opt.zero_grad()  # clear gradients
+            small_step = 0
+            step += 1
+            step_loss_dict = train_loss_tracker.compute()
+            logger.log_dict(log_dict=step_loss_dict, split='train', step=step)
+
+            if step % train_cfg_dict['eval_freq'] == 0:
+                model.eval()
+
+                for split, dataloader in eval_dataloaders:
+                    # TODO
+                    select_and_visualize_examples(model=model,
+                                                  dataloader=dataloader,
+                                                  split=split,
+                                                  logger=logger,
+                                                  step=step,
+                                                  **train_cfg_dict['logging'])
+
+                for split in train_cfg_dict['eval_splits']:
+                    eval(dataloader=eval_dataloaders[split],
+                         logger=logger,
+                         split=split,
+                         step=step)
+
+                # TODO save the checkpoint if the metric is the best
+                checkpoint_logger.save_checkpoint(parser_config, model.state_dict(), step)
+
+                model.train()
 
         break
-
 
 
 if __name__ == '__main__':
     parser_dict = get_parser_config()
     cfg_dict = OmegaConf.load(parser_dict['config_name'])
     model_cfg_dict = cfg_dict['model']
-    print(model_cfg_dict)
     train_cfg_dict = cfg_dict['setup']
 
     seed_everything(parser_dict['seed'])

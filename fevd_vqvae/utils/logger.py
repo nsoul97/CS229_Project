@@ -2,6 +2,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
 from fevd_vqvae.utils.dataset import unnormalize
+from typing import Dict
 import os
 import shutil
 
@@ -71,51 +72,32 @@ class Logger:
             self._log_videos(video, f"{parition_name}/input_vs_reconstruction_video_{i}", step, fps)
 
         for i in range(0, len(input_imgs), nrow):
-            input_grid_imgs = input_imgs[i:i+nrow]
-            reconstruction_grid_imgs = reconstruction_imgs[i:i+nrow]
+            input_grid_imgs = input_imgs[i:i + nrow]
+            reconstruction_grid_imgs = reconstruction_imgs[i:i + nrow]
             grid = torch.cat((input_grid_imgs, reconstruction_grid_imgs), dim=0)
             self._log_img_grid(grid, f"{parition_name}/images/input_vs_reconstruction_img_grid_{i}", step, nrow=nrow)
 
-    def _log_loss_dict(self, train_dict, val_dict, step):
-        """ Logs complete training and val loss dicts for a given step
+    def log_dict(self,
+                 log_dict: Dict[str, float],
+                 split: str,
+                 step: int):
+        """ Logs complete the loss/metrics dict for a given step
         
         Args:
-            train_dict (dict): Dict containing training image losses
-            val_dict (dict): Dict containing validation image losses
+            log_dict (dict): Dict containing training image losses or the evaluation metrics
+            split(str): 'train', 'val' or 'train'
             step (int): Current training step
         """
-        for k,train_loss in train_dict:
-            val_loss = val_dict[k]
-            self.log_loss(train_loss, val_loss, "train_"+k, "val_"+k, step)
-
-    def log_loss(self, train_loss, val_loss, train_name, val_name,step):
-        self._log_scalar(train_loss, train_name, step)
-        self._log_scalar(val_loss, val_name, step)
-
-        self._summ_writer.flush()
-
-    def log_metrics(self,
-                    val_fvd, val_lpips, val_psnr, val_ssim,
-                    test_fvd, test_lpips, test_psnr, test_ssim,
-                    step):
-
-        self._log_scalar(val_fvd, "val/fvd", step)
-        self._log_scalar(val_lpips, "val/lpips", step)
-        self._log_scalar(val_psnr, "val/psnr", step)
-        self._log_scalar(val_ssim, "val/ssim", step)
-
-        self._log_scalar(test_fvd, "test/fvd", step)
-        self._log_scalar(test_lpips, "test/lpips", step)
-        self._log_scalar(test_psnr, "test/psnr", step)
-        self._log_scalar(test_ssim, "test/ssim", step)
+        for k, v in log_dict.items():
+            self._log_scalar(v, f"{split}/{k}", step)
 
         self._summ_writer.flush()
 
     def log_visualizations(self,
-                          train_input_videos, train_reconstruction_videos, train_input_imgs, train_reconstruction_imgs,
-                          val_input_videos, val_reconstruction_videos, val_input_imgs, val_reconstruction_imgs,
-                          test_input_videos, test_reconstruction_videos, test_input_imgs, test_reconstruction_imgs,
-                          step, normalized_statistics=True, fps=10, nrow=4):
+                           train_input_videos, train_reconstruction_videos, train_input_imgs, train_reconstruction_imgs,
+                           val_input_videos, val_reconstruction_videos, val_input_imgs, val_reconstruction_imgs,
+                           test_input_videos, test_reconstruction_videos, test_input_imgs, test_reconstruction_imgs,
+                           step, normalized_statistics=True, fps=10, nrow=4):
 
         self._log_partition_visualizations("train",
                                            train_input_videos, train_reconstruction_videos,
@@ -133,5 +115,3 @@ class Logger:
                                            step, normalized_statistics, fps, nrow)
 
         self._summ_writer.flush()
-
-

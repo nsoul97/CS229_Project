@@ -3,7 +3,7 @@ import torch.nn as nn
 from fevd_vqvae.metrics.lpips import LPIPS
 from fevd_vqvae.metrics.frechet_video_distance import InceptionI3d
 from fevd_vqvae.utils.dataset import unnormalize
-
+from typing import Dict
 
 class VQLoss(nn.Module):
     def __init__(self,
@@ -36,11 +36,11 @@ class VQLoss(nn.Module):
 
         mu_real = torch.mean(real_vid_feats, dim=0)
         mu_rec = torch.mean(rec_vid_feats, dim=0)
-        fvd_loss_mu = torch.mean((mu_real - mu_rec)**2)
+        fvd_loss_mu = torch.mean((mu_real - mu_rec) ** 2)
 
         cov_real = torch.cov(real_vid_feats.T)
         cov_rec = torch.cov(rec_vid_feats.T)
-        fvd_loss_cov = torch.mean((cov_real - cov_rec)**2)
+        fvd_loss_cov = torch.mean((cov_real - cov_rec) ** 2)
 
         fvd_loss_mu = fvd_loss_mu.reshape(1, 1, 1, 1, 1)
         fvd_loss_cov = fvd_loss_cov.reshape(1, 1, 1, 1, 1)
@@ -89,3 +89,39 @@ class VQLoss(nn.Module):
                "fvd_cov_loss": fvd_loss_cov.mean().item()}
 
         return loss, log
+
+
+class LossTracker:
+    def __init__(self,
+                 total_steps):
+        self._current_log = {"total_loss": 0.,
+                             "quant_loss": 0.,
+                             "rec_loss": 0.,
+                             "pixel_loss": 0.,
+                             "perc_2d_loss": 0.,
+                             "fvd_loss": 0.,
+                             "fvd_mu_loss": 0.,
+                             "fvd_cov_loss": 0.}
+        self._current_steps = 0
+        self._total_steps = total_steps
+
+    def _reset(self):
+        self._current_steps = 0
+        for k in self._current_log.keys():
+            self._current_log[k] = 0.
+
+    def update(self,
+               loss_log: Dict[str, float]):
+        self._current_steps += 1
+        for k in self._current_log.keys():
+            self._current_log[k] += loss_log[k] / self._total_steps
+
+    def compute(self) -> Dict:
+
+        assert self._current_steps == self._total_steps, f"The loss must be computed after {self._total_steps} steps," \
+                                                         f"currently {self._current_steps}"
+
+        log = self._current_log.copy()
+        self._reset()
+        return log
+

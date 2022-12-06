@@ -117,7 +117,7 @@ class RobonetImgDataset(data.Dataset):
         frame = torch.from_numpy(video[frame])
         frame = torch.permute(frame, [2, 0, 1]).to(memory_format=torch.contiguous_format)
         frame /= 255.
-        frame = normalize(frame)
+        frame = normalize(frame).float()
         return frame
 
 
@@ -161,9 +161,9 @@ class RobonetVideoDataset(data.Dataset):
     def __getitem__(self, idx):
         file_name, start_frame_idx = self._data[idx]
         file_path = os.path.join(self._split_dir_path, file_name)
-        video = np.load(file_path).astype(np.float32)
+        video = np.load(file_path)
         video_segment = torch.from_numpy(video[start_frame_idx: start_frame_idx + self._total_frames])
         video_segment = torch.permute(video_segment, [0, 3, 1, 2]).to(memory_format=torch.contiguous_format)
         video_segment /= 255.
-        video_segment = normalize(video_segment)
+        video_segment = normalize(video_segment).float()
         return video_segment
