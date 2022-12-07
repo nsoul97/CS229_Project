@@ -41,7 +41,7 @@ setup:
     dataset_module: RobonetVideoDataset
     split: [train, val, test]
     num_workers: 2
-    batch_size: 32
+    batch_size: 10
     shuffle: True
     drop_last: False
 
