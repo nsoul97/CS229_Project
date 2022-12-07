@@ -209,9 +209,11 @@ def main(parser_config: Dict,
     total_steps = int(train_cfg_dict['total_steps'])
     step = ckpt_dict['step']
     small_step = 0
+
     progress = tqdm(total_steps)
     scaler = GradScaler()
     grad_steps = train_cfg_dict['grad_updates_per_step']
+
     while step < total_steps:  # Start steps
 
         try:
@@ -234,11 +236,11 @@ def main(parser_config: Dict,
             scaler.step(opt) #update params
             scaler.update() #update for next iter
             opt.zero_grad()  # clear gradients
-            with torch.no_grad():
-                small_step = 0
-                step += 1
-                step_loss_dict = train_loss_tracker.compute()
-                logger.log_dict(log_dict=step_loss_dict, split='train', step=step)
+
+            small_step = 0
+            step += 1
+            step_loss_dict = train_loss_tracker.compute()
+            logger.log_dict(log_dict=step_loss_dict, split='train', step=step)
 
             if step % train_cfg_dict['eval_freq'] == 0:
                 progress.update()
