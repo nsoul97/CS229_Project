@@ -10,6 +10,8 @@ from fevd_vqvae.models import VQModel, LossTracker
 from fevd_vqvae.metrics import MetricsTracker
 import torch.utils.data as data
 from tqdm import tqdm
+from torch.cuda.amp import GradScaler
+
 
 def seed_everything(seed: int):
     random.seed(seed)
@@ -208,7 +210,10 @@ def main(parser_config: Dict,
     step = ckpt_dict['step']
     small_step = 0
 
-    pbar = tqdm(total=total_steps)
+    progress = tqdm(total_steps)
+    scaler = GradScaler()
+    grad_steps = train_cfg_dict['grad_updates_per_step']
+
     while step < total_steps:  # Start steps
 
         try:
@@ -218,23 +223,27 @@ def main(parser_config: Dict,
             x = next(train_dataloader_iter)
 
         x = x.to(device)
-
-        _, loss, loss_log = model.step(x)  # train step
-        train_loss_tracker.update(loss_log)
-        loss = loss / train_cfg_dict['grad_updates_per_step']  # normalize the loss for gradient accumulation
-        loss.backward()  # backward
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            _, loss, loss_log = model.step(x)  # train step
+            loss = loss / grad_steps # normalize the loss for gradient accumulation
+        with torch.no_grad():
+            train_loss_tracker.update(loss_log)
+          
+        scaler.scale(loss).backward()
 
         small_step += 1
         if small_step == train_cfg_dict['grad_updates_per_step']:
-            opt.step()  # update parameters
+            scaler.step(opt) #update params
+            scaler.update() #update for next iter
             opt.zero_grad()  # clear gradients
+
             small_step = 0
             step += 1
-            pbar.update(1)
             step_loss_dict = train_loss_tracker.compute()
             logger.log_dict(log_dict=step_loss_dict, split='train', step=step)
 
             if step % train_cfg_dict['eval_freq'] == 0:
+                progress.update()
                 model.eval()
 
                 for split, dataloader in eval_dataloaders.items():
@@ -262,7 +271,7 @@ def main(parser_config: Dict,
                                                   step=step)
 
                 model.train()
-
+    progress.close()
 
 if __name__ == '__main__':
     parser_dict = get_parser_config()
