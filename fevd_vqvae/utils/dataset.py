@@ -50,6 +50,8 @@ def _setup_split_dataloader(root_dir_path: str,
                             split: str,
                             num_workers: int,
                             batch_size: int,
+                            shuffle: bool,
+                            drop_last: bool,
                             use_only_videos: Union[int, None] = None):
 
     if dataset_module == 'RobonetImgDataset':
@@ -59,7 +61,9 @@ def _setup_split_dataloader(root_dir_path: str,
 
     return data.DataLoader(dataset,
                            num_workers=num_workers,
-                           batch_size=batch_size)
+                           batch_size=batch_size,
+                           shuffle=shuffle,
+                           pin_memory=True)
 
 
 def setup_dataloader(root_dir_path: str,
@@ -67,6 +71,8 @@ def setup_dataloader(root_dir_path: str,
                      split: Union[List[str], str],
                      num_workers: int,
                      batch_size: int,
+                     shuffle: bool,
+                     drop_last: bool,
                      use_only_videos: Optional[int] = None) -> Union[data.DataLoader, Dict[str, data.DataLoader]]:
 
     if (not isinstance(split, str)) and (not isinstance(split, omegaconf.listconfig.ListConfig)):
@@ -77,9 +83,11 @@ def setup_dataloader(root_dir_path: str,
                         f"{dataset_module}")
 
     if isinstance(split, str):
-        return _setup_split_dataloader(root_dir_path, dataset_module, split, num_workers, batch_size, use_only_videos)
+        return _setup_split_dataloader(root_dir_path, dataset_module, split, num_workers, batch_size, shuffle,
+                                       drop_last, use_only_videos)
     else:
-        return {s: _setup_split_dataloader(root_dir_path, dataset_module, s, num_workers, batch_size, use_only_videos) for s in split}
+        return {s: _setup_split_dataloader(root_dir_path, dataset_module, s, num_workers, batch_size, shuffle,
+                                           drop_last, use_only_videos) for s in split}
 
 
 class RobonetImgDataset(data.Dataset):

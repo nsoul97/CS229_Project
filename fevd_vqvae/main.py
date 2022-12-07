@@ -9,7 +9,7 @@ from fevd_vqvae.utils import Logger, Checkpoint, setup_dataloader
 from fevd_vqvae.models import VQModel, LossTracker
 from fevd_vqvae.metrics import MetricsTracker
 import torch.utils.data as data
-
+from tqdm import tqdm
 
 def seed_everything(seed: int):
     random.seed(seed)
@@ -207,6 +207,8 @@ def main(parser_config: Dict,
     total_steps = int(train_cfg_dict['total_steps'])
     step = ckpt_dict['step']
     small_step = 0
+
+    pbar = tqdm(total=total_steps)
     while step < total_steps:  # Start steps
 
         try:
@@ -228,11 +230,11 @@ def main(parser_config: Dict,
             opt.zero_grad()  # clear gradients
             small_step = 0
             step += 1
+            pbar.update(1)
             step_loss_dict = train_loss_tracker.compute()
             logger.log_dict(log_dict=step_loss_dict, split='train', step=step)
 
             if step % train_cfg_dict['eval_freq'] == 0:
-                print(f"Step {step}: Evaluating...")
                 model.eval()
 
                 for split, dataloader in eval_dataloaders.items():
