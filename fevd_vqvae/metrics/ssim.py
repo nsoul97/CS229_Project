@@ -41,8 +41,8 @@ class SSIM:
 
         B, T, C, H, W = real_videos.shape
 
-        real_videos = real_videos.view(-1, C, H, W)
-        gen_videos = gen_videos.view(-1, C, H, W)
+        real_videos = real_videos.reshape(-1, C, H, W)
+        gen_videos = gen_videos.reshape(-1, C, H, W)
 
         real_videos_patches = F.unfold(real_videos, self._filter_size).reshape(B, T, C, self._filter_size,
                                                                                self._filter_size, -1)

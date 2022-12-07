@@ -274,6 +274,7 @@ def main(parser_config: Dict,
                 model.train()
     progress.close()
 
+
 if __name__ == '__main__':
     parser_dict = get_parser_config()
     cfg_dict = OmegaConf.load(parser_dict['config_name'])

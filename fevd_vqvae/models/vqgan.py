@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from fevd_vqvae.models.model_modules import Encoder, Decoder3D, Decoder2D
 from fevd_vqvae.models.vector_quantizer import VectorQuantizer
-from fevd_vqvae.models.utils import instantiate_from_config
 from fevd_vqvae.models.loss import VQLoss
 
 
@@ -50,7 +49,6 @@ class VQModel(nn.Module):
         return quant, emb_loss, info
 
     def decode_2d(self, quant):
-        print(quant.shape)
         input_is_videos = len(quant.shape) == 5
         if input_is_videos:
             B, T, C, H, W = quant.shape  # the input is a batch of videos (B, T, C, H, W)
