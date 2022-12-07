@@ -5,11 +5,29 @@ import numpy as np
 
 def nonlinearity(x):
     # swish
-    return x*torch.sigmoid(x)
+    return x * torch.sigmoid(x)
 
 
 def Normalize(in_channels):
     return torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+
+
+class Upsample3D(nn.Module):
+    def __init__(self, in_channels, with_conv):
+        super().__init__()
+        self.with_conv = with_conv
+        if self.with_conv:
+            self.conv = torch.nn.Conv3d(in_channels,
+                                        in_channels,
+                                        kernel_size=3,
+                                        stride=1,
+                                        padding=1)
+
+    def forward(self, x):
+        x = torch.nn.functional.interpolate(x, scale_factor=2.0, mode="nearest")
+        if self.with_conv:
+            x = self.conv(x)
+        return x
 
 
 class Upsample(nn.Module):
@@ -44,7 +62,7 @@ class Downsample(nn.Module):
 
     def forward(self, x):
         if self.with_conv:
-            pad = (0,1,0,1)
+            pad = (0, 1, 0, 1)
             x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
             x = self.conv(x)
         else:
@@ -98,7 +116,7 @@ class ResnetBlock(nn.Module):
         h = self.conv1(h)
 
         if temb is not None:
-            h = h + self.temb_proj(nonlinearity(temb))[:,:,None,None]
+            h = h + self.temb_proj(nonlinearity(temb))[:, :, None, None]
 
         h = self.norm2(h)
         h = nonlinearity(h)
@@ -111,7 +129,62 @@ class ResnetBlock(nn.Module):
             else:
                 x = self.nin_shortcut(x)
 
-        return x+h
+        return x + h
+
+
+class SpatialAttention(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self._attention_block = AttnBlock(in_channels)
+
+    def forward(self, x):
+        b, c, t, h, w = x.shape
+        x = x.transpose(1, 2)
+        x = x.reshape(b * t, c, h, w)
+
+        x = self._attention_block(x)
+
+        x = x.reshape(b, t, c, h, w)
+        x = x.transpose(1, 2)
+        return x
+
+
+class WindowedSpatioTemporalAttention(nn.Module):
+    def __init__(self, in_channels, window_size):
+        super().__init__()
+        self._attention_block = AttnBlock(in_channels)
+        self._window_size = window_size
+
+    def forward(self, x):
+        b, c, t, h, w = x.shape
+
+        assert h % self._window_size == 0 and w % self._window_size == 0, \
+            "The height and the width are not divided by the window size."
+
+        x = x.unfold(3, self._window_size, self._window_size).unfold(4, self._window_size,
+                                                                     self._window_size)  # b, c, t, h/window, w/window, h_window, w_window
+        x = x.permute(0, 3, 4, 1, 2, 5, 6)  # b,  h/window, w/window, c, t, h_window, w_window
+        x = x.reshape(b * (h // self._window_size) * (w // self._window_size), c, t * self._window_size,
+                      self._window_size)
+
+        x = self._attention_block(x)
+
+        x = x.reshape(b, (h // self._window_size), (w // self._window_size), c, t, self._window_size, self._window_size)
+        x = x.permute(0, 3, 4, 1, 2, 5, 6)  # b, c, t, h/window, h_window, w/window, w_window
+        x = x.reshape(b, c, t, h, w)
+        return x
+
+
+class SpatioTemporalAttention(nn.Module):
+    def __init__(self, in_channels, window_size):
+        super().__init__()
+        self._spatial_attention = SpatialAttention(in_channels)
+        self._window_spatio_temporal_attention = WindowedSpatioTemporalAttention(in_channels, window_size=window_size)
+
+    def forward(self, x):
+        x = self._spatial_attention(x)
+        x = self._window_spatio_temporal_attention(x)
+        return x
 
 
 class AttnBlock(nn.Module):
@@ -141,7 +214,6 @@ class AttnBlock(nn.Module):
                                         stride=1,
                                         padding=0)
 
-
     def forward(self, x):
         h_ = x
         h_ = self.norm(h_)
@@ -150,27 +222,27 @@ class AttnBlock(nn.Module):
         v = self.v(h_)
 
         # compute attention
-        b,c,h,w = q.shape
-        q = q.reshape(b,c,h*w)
-        q = q.permute(0,2,1)   # b,hw,c
-        k = k.reshape(b,c,h*w) # b,c,hw
-        w_ = torch.bmm(q,k)     # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
-        w_ = w_ * (int(c)**(-0.5))
+        b, c, h, w = q.shape
+        q = q.reshape(b, c, h * w)
+        q = q.permute(0, 2, 1)  # b,hw,c
+        k = k.reshape(b, c, h * w)  # b,c,hw
+        w_ = torch.bmm(q, k)  # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
+        w_ = w_ * (int(c) ** (-0.5))
         w_ = torch.nn.functional.softmax(w_, dim=2)
 
         # attend to values
-        v = v.reshape(b,c,h*w)
-        w_ = w_.permute(0,2,1)   # b,hw,hw (first hw of k, second of q)
-        h_ = torch.bmm(v,w_)     # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
-        h_ = h_.reshape(b,c,h,w)
+        v = v.reshape(b, c, h * w)
+        w_ = w_.permute(0, 2, 1)  # b,hw,hw (first hw of k, second of q)
+        h_ = torch.bmm(v, w_)  # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
+        h_ = h_.reshape(b, c, h, w)
 
         h_ = self.proj_out(h_)
 
-        return x+h_
+        return x + h_
 
 
 class Encoder(nn.Module):
-    def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
+    def __init__(self, *, ch, out_ch, ch_mult=(1, 2, 4, 8), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
                  resolution, z_channels, double_z=True, **ignore_kwargs):
         super().__init__()
@@ -189,13 +261,13 @@ class Encoder(nn.Module):
                                        padding=1)
 
         curr_res = resolution
-        in_ch_mult = (1,)+tuple(ch_mult)
+        in_ch_mult = (1,) + tuple(ch_mult)
         self.down = nn.ModuleList()
         for i_level in range(self.num_resolutions):
             block = nn.ModuleList()
             attn = nn.ModuleList()
-            block_in = ch*in_ch_mult[i_level]
-            block_out = ch*ch_mult[i_level]
+            block_in = ch * in_ch_mult[i_level]
+            block_out = ch * ch_mult[i_level]
             for i_block in range(self.num_res_blocks):
                 block.append(ResnetBlock(in_channels=block_in,
                                          out_channels=block_out,
@@ -207,7 +279,7 @@ class Encoder(nn.Module):
             down = nn.Module()
             down.block = block
             down.attn = attn
-            if i_level != self.num_resolutions-1:
+            if i_level != self.num_resolutions - 1:
                 down.downsample = Downsample(block_in, resamp_with_conv)
                 curr_res = curr_res // 2
             self.down.append(down)
@@ -227,7 +299,7 @@ class Encoder(nn.Module):
         # end
         self.norm_out = Normalize(block_in)
         self.conv_out = torch.nn.Conv2d(block_in,
-                                        2*z_channels if double_z else z_channels,
+                                        2 * z_channels if double_z else z_channels,
                                         kernel_size=3,
                                         stride=1,
                                         padding=1)
@@ -245,7 +317,7 @@ class Encoder(nn.Module):
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
-            if i_level != self.num_resolutions-1:
+            if i_level != self.num_resolutions - 1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
 
         # middle
@@ -261,8 +333,64 @@ class Encoder(nn.Module):
         return h
 
 
-class Decoder2D(nn.Module):
-    def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
+class SpatialResnetBlock(nn.Module):
+    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
+                 dropout, temb_channels=512):
+        super(SpatialResnetBlock, self).__init__()
+
+        self._resnet_block = ResnetBlock(in_channels=in_channels,
+                                         out_channels=out_channels,
+                                         conv_shortcut=conv_shortcut,
+                                         dropout=dropout,
+                                         temb_channels=temb_channels)
+
+    def forward(self, x, temb):
+        b, c, t, h, w = x.shape
+        x = x.transpose(1, 2)
+        x = x.reshape(b * t, c, h, w)
+
+        x = self._resnet_block(x, temb)
+
+        _, c, h, w = x.shape
+        x = x.reshape(b, t, c, h, w)
+        x = x.transpose(1, 2)
+        return x
+
+
+class WindowedSpatioTemporalResnetBlock(nn.Module):
+    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
+                 dropout, temb_channels=512, window_size: int):
+        super().__init__()
+        self._resnet_block = ResnetBlock(in_channels=in_channels,
+                                         out_channels=out_channels,
+                                         conv_shortcut=conv_shortcut,
+                                         dropout=dropout,
+                                         temb_channels=temb_channels)
+
+        self._window_size = window_size
+
+    def forward(self, x, temb):
+        b, c, t, h, w = x.shape
+
+        assert h % self._window_size == 0 and w % self._window_size == 0, \
+            "The height and the width are not divided by the window size."
+
+        x = x.unfold(3, self._window_size, self._window_size).unfold(4, self._window_size,
+                                                                     self._window_size)  # b, c, t, h/window, w/window, h_window, w_window
+        x = x.permute(0, 3, 4, 1, 2, 5, 6)  # b,  h/window, w/window, c, t, h_window, w_window
+        x = x.reshape(b * (h // self._window_size) * (w // self._window_size), c, t * self._window_size,
+                      self._window_size)
+
+        x = self._resnet_block(x, temb)
+
+        x = x.reshape(b, (h // self._window_size), (w // self._window_size), c, t, self._window_size, self._window_size)
+        x = x.permute(0, 3, 4, 1, 2, 5, 6)  # b, c, t, h/window, h_window, w/window, w_window
+        x = x.reshape(b, c, t, h, w)
+        return x
+
+
+class Decoder3D(nn.Module):
+    def __init__(self, *, ch, out_ch, ch_mult=(1, 2, 4, 8), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
                  resolution, z_channels, give_pre_end=False, **ignorekwargs):
         super().__init__()
@@ -275,10 +403,138 @@ class Decoder2D(nn.Module):
         self.give_pre_end = give_pre_end
 
         # compute in_ch_mult, block_in and curr_res at lowest res
-        in_ch_mult = (1,)+tuple(ch_mult)
-        block_in = ch*ch_mult[self.num_resolutions-1]
-        curr_res = resolution // 2**(self.num_resolutions-1)
-        self.z_shape = (1,z_channels,curr_res,curr_res)
+        in_ch_mult = (1,) + tuple(ch_mult)
+        block_in = ch * ch_mult[self.num_resolutions - 1]
+        curr_res = resolution // 2 ** (self.num_resolutions - 1)
+        self.z_shape = (1, z_channels, curr_res, curr_res)
+        print("Working with z of shape {} = {} dimensions.".format(
+            self.z_shape, np.prod(self.z_shape)))
+
+        # z to block_in
+        self.conv_in = torch.nn.Conv2d(z_channels,
+                                       block_in,
+                                       kernel_size=3,
+                                       stride=1,
+                                       padding=1)
+
+        # middle
+        self.mid = nn.Module()
+        self.mid.block_1 = SpatialResnetBlock(in_channels=block_in,
+                                              out_channels=block_in,
+                                              temb_channels=self.temb_ch,
+                                              dropout=dropout)
+        self.mid.attn_1 = SpatioTemporalAttention(block_in, window_size=4)
+        self.mid.block_2 = WindowedSpatioTemporalResnetBlock(in_channels=block_in,
+                                                             out_channels=block_in,
+                                                             temb_channels=self.temb_ch,
+                                                             dropout=dropout, window_size=4)
+
+        # upsampling
+        self.up = nn.ModuleList()
+        for i_level in reversed(range(self.num_resolutions)):
+            block = nn.ModuleList()
+            attn = nn.ModuleList()
+            block_out = ch * ch_mult[i_level]
+            for i_block in range(self.num_res_blocks + 1):
+                if i_block % 2 == 0:
+                    block.append(SpatialResnetBlock(in_channels=block_in,
+                                                    out_channels=block_out,
+                                                    temb_channels=self.temb_ch,
+                                                    dropout=dropout))
+                else:
+                    block.append(WindowedSpatioTemporalResnetBlock(in_channels=block_in,
+                                                                   out_channels=block_out,
+                                                                   temb_channels=self.temb_ch,
+                                                                   dropout=dropout,
+                                                                   window_size=4))
+                block_in = block_out
+                if curr_res in attn_resolutions:
+                    if i_block % 2 == 0:
+                        attn.append(WindowedSpatioTemporalAttention(block_in, window_size=4))
+                    else:
+                        attn.append(SpatialAttention(block_in))
+            up = nn.Module()
+            up.block = block
+            up.attn = attn
+            if i_level != 0:
+                up.upsample = Upsample(block_in, resamp_with_conv)
+                curr_res = curr_res * 2
+            self.up.insert(0, up)  # prepend to get consistent order
+
+        # end
+        self.norm_out = Normalize(block_in)
+        self.conv_out = torch.nn.Conv2d(block_in,
+                                        out_ch,
+                                        kernel_size=3,
+                                        stride=1,
+                                        padding=1)
+
+    def forward(self, z):
+        self.last_z_shape = z.shape
+
+        b, t, c, hd, wd = z.shape
+        z = z.reshape(b*t, c, hd, wd)
+
+        # timestep embedding
+        temb = None
+
+        # z to block_in
+        h = self.conv_in(z)
+        _, c, hd, wd = h.shape
+        h = h.reshape(b, t, c, hd, wd).transpose(1, 2)
+
+        # middle
+        h = self.mid.block_1(h, temb)
+        h = self.mid.attn_1(h)
+        h = self.mid.block_2(h, temb)
+
+        # upsampling
+        for i_level in reversed(range(self.num_resolutions)):
+            for i_block in range(self.num_res_blocks + 1):
+                h = self.up[i_level].block[i_block](h, temb)
+                if len(self.up[i_level].attn) > 0:
+                    h = self.up[i_level].attn[i_block](h)
+            if i_level != 0:
+                b, c, t, hd, wd = h.shape
+                h = h.transpose(1, 2).reshape(b * t, c, hd, wd)
+                h = self.up[i_level].upsample(h)
+                _, c, hd, wd = h.shape
+                h = h.reshape(b, t, c, hd, wd).transpose(1, 2)
+
+        # end
+        if self.give_pre_end:
+            return h
+
+        h = self.norm_out(h)
+        h = nonlinearity(h)
+
+        b, c, t, hd, wd = h.shape
+        h = h.transpose(1, 2).reshape(b * t, c, hd, wd)
+        h = self.conv_out(h)
+        _, c, hd, wd = h.shape
+
+        h = h.reshape(b, t, c, hd, wd)
+        return h
+
+
+class Decoder2D(nn.Module):
+    def __init__(self, *, ch, out_ch, ch_mult=(1, 2, 4, 8), num_res_blocks,
+                 attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
+                 resolution, z_channels, give_pre_end=False, **ignorekwargs):
+        super().__init__()
+        self.ch = ch
+        self.temb_ch = 0
+        self.num_resolutions = len(ch_mult)
+        self.num_res_blocks = num_res_blocks
+        self.resolution = resolution
+        self.in_channels = in_channels
+        self.give_pre_end = give_pre_end
+
+        # compute in_ch_mult, block_in and curr_res at lowest res
+        in_ch_mult = (1,) + tuple(ch_mult)
+        block_in = ch * ch_mult[self.num_resolutions - 1]
+        curr_res = resolution // 2 ** (self.num_resolutions - 1)
+        self.z_shape = (1, z_channels, curr_res, curr_res)
         print("Working with z of shape {} = {} dimensions.".format(
             self.z_shape, np.prod(self.z_shape)))
 
@@ -306,8 +562,8 @@ class Decoder2D(nn.Module):
         for i_level in reversed(range(self.num_resolutions)):
             block = nn.ModuleList()
             attn = nn.ModuleList()
-            block_out = ch*ch_mult[i_level]
-            for i_block in range(self.num_res_blocks+1):
+            block_out = ch * ch_mult[i_level]
+            for i_block in range(self.num_res_blocks + 1):
                 block.append(ResnetBlock(in_channels=block_in,
                                          out_channels=block_out,
                                          temb_channels=self.temb_ch,
@@ -321,7 +577,7 @@ class Decoder2D(nn.Module):
             if i_level != 0:
                 up.upsample = Upsample(block_in, resamp_with_conv)
                 curr_res = curr_res * 2
-            self.up.insert(0, up) # prepend to get consistent order
+            self.up.insert(0, up)  # prepend to get consistent order
 
         # end
         self.norm_out = Normalize(block_in)
@@ -347,7 +603,7 @@ class Decoder2D(nn.Module):
 
         # upsampling
         for i_level in reversed(range(self.num_resolutions)):
-            for i_block in range(self.num_res_blocks+1):
+            for i_block in range(self.num_res_blocks + 1):
                 h = self.up[i_level].block[i_block](h, temb)
                 if len(self.up[i_level].attn) > 0:
                     h = self.up[i_level].attn[i_block](h)

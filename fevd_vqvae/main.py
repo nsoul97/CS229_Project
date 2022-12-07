@@ -210,7 +210,7 @@ def main(parser_config: Dict,
     step = ckpt_dict['step']
     small_step = 0
 
-    progress = tqdm(total_steps)
+    progress = tqdm(total=total_steps, initial=step)
     scaler = GradScaler()
     grad_steps = train_cfg_dict['grad_updates_per_step']
 
@@ -242,8 +242,9 @@ def main(parser_config: Dict,
             step_loss_dict = train_loss_tracker.compute()
             logger.log_dict(log_dict=step_loss_dict, split='train', step=step)
 
+            progress.update()
+
             if step % train_cfg_dict['eval_freq'] == 0:
-                progress.update()
                 model.eval()
 
                 for split, dataloader in eval_dataloaders.items():
