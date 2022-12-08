@@ -25,15 +25,15 @@ model:
 setup:
   total_steps: 3e4
   learning_rate: 5e-4
-  eval_freq: 10
+  eval_freq: 100
   eval_splits: [val, test]
-  grad_updates_per_step: 6
+  grad_updates_per_step: 8
 
   train_dataloader:
     dataset_module: RobonetVideoDataset
     split: train
-    num_workers: 6
-    batch_size: 10
+    num_workers: 4
+    batch_size: 8
     shuffle: True
     drop_last: True
 
