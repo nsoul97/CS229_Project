@@ -7,3 +7,7 @@ venv*
 build*
 checkpoints/metrics/i3d_torchscript.pt
 checkpoints/metrics/vgg.pth
+checkpoints*
+temporal_net_e*
+*.csv
+*.pt
