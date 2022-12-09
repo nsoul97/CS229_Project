@@ -11,3 +11,4 @@ pandas
 opencv-python
 imageio
 moviepy
+tensorboard

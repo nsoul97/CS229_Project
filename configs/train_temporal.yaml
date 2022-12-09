@@ -1,0 +1,27 @@
+model:
+  obj: fevd_vqvae.models.temporal_net.TemporalModel
+data:
+  obj: fevd_vqvae.utils.dataset.VideoPermutationDataset
+  train:
+    split: train
+    augment: False
+  val:
+    split: val
+    augment: False
+dataloader:
+  train:
+    num_workers: 4
+    batch_size: 100
+    shuffle: True
+    drop_last: True
+  val:
+    num_workers: 1
+    batch_size: 100
+    shuffle: False
+    drop_last: False
+opt:
+  obj: torch.optim.Adam
+  params:
+    lr: 0.001
+training:
+  epochs: 5

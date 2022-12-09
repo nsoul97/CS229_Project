@@ -1,0 +1,54 @@
+model:
+  key: 2d
+  embed_dim: 192
+  n_embed: 1024
+
+  ddconfig:
+    double_z: False
+    z_channels: 256
+    resolution: 64
+    in_channels: 3
+    out_ch: 3
+    ch: 128
+    ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
+    num_res_blocks: 2
+    attn_resolutions: [16]
+    dropout: 0.0
+
+  lossconfig:
+    codebook_weight: 1.0
+    pixelloss_weight: 1.0
+    perceptual_weight_2d: 1.0
+    fvd_mu_weight: 0.0
+    fvd_cov_weight: 0.0
+
+setup:
+  total_steps: 7e4
+  learning_rate: 5e-4
+  eval_freq: 100
+  eval_splits: [val, test]
+  grad_updates_per_step: 6
+
+  train_dataloader:
+    dataset_module: RobonetImgDataset
+    split: train
+    num_workers: 6
+    batch_size: 120
+    shuffle: True
+    drop_last: True
+
+  eval_dataloader:
+    dataset_module: RobonetVideoDataset
+    split: [train, val, test]
+    num_workers: 2
+    batch_size: 32
+    shuffle: True
+    drop_last: False
+
+  logging:
+    imgs_per_grid: 4
+    total_imgs: 8
+    num_videos: 2
+
+  checkpoint:
+    num_last_checkpoints: 5

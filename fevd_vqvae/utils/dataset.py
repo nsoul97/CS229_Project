@@ -3,9 +3,12 @@ import torch
 import numpy as np
 import pandas as pd
 import omegaconf
+import random
 from typing import List, Union, Dict, Optional
 from torch.types import Device
 import os
+import torchvision
+from utils.transforms import RandomizePixels
 
 _statistics = {'mean': [0.4947905177456989, 0.4394289448514622, 0.3734249455050442],
                'std': [0.2248808632122409, 0.2230480187693433, 0.2166628109431439]}
@@ -181,3 +184,67 @@ class RobonetVideoDataset(data.Dataset):
         video_segment /= 255.
         video_segment = normalize(video_segment)
         return video_segment
+
+
+
+class VideoPermutationDataset(RobonetVideoDataset):
+  def __init__(self, augment=True, *args, **kwargs):
+      super(VideoPermutationDataset, self).__init__(*args, **kwargs)
+      self.T = 12
+      self.augment = augment
+
+      if augment:
+        self.gaussian_blur = torchvision.transforms.GaussianBlur(kernel_size=3)
+        self.random_pixels = RandomizePixels()
+      else:
+        self.gaussian_blur = None
+        self.random_pixels = None
+        
+  def __len__(self):
+    return len(self._data)
+
+  def transform(self, frames):
+    transforms  = []
+    if random.uniform(0, 1) < 0.8:
+      if random.uniform(0, 1) < 0.75:    # apply randomize_pixel transfrom
+        transforms.append(self.random_pixels)
+      if random.uniform(0, 1) < 0.2:     # apply gaussian blur transform
+        transforms.append(self.random_pixels)
+      
+      random.shuffle(transforms)    # randomize the order of the transformations to be applied
+    
+      for t in transforms:
+        frames = t(frames)
+    
+    return frames
+
+  def __getitem__(self, idx):
+    file_name, start_frame_idx = self._data[idx]
+    file_path = os.path.join(self._split_dir_path, file_name)
+    video = np.load(file_path)
+    video_segment = torch.from_numpy(video[start_frame_idx: start_frame_idx + self._total_frames])
+    video_segment = torch.permute(video_segment, [0, 3, 1, 2]).to(memory_format=torch.contiguous_format).float()
+    video_segment /= 255.
+    anchor = video_segment
+    achor_ind = torch.arange(0, self.T, dtype=torch.int)
+
+    perm_ind1 = torch.randperm(self.T)
+    shift_dist1 = torch.sum(torch.abs(achor_ind - perm_ind1))
+
+    shift_dist2 = shift_dist1
+    while shift_dist1 == shift_dist2:
+      perm_ind2 = torch.randperm(self.T)
+      shift_dist2 = torch.sum(torch.abs(achor_ind - perm_ind2))
+
+    if shift_dist1 > shift_dist2:
+      negative = anchor[perm_ind1, ...]
+      positive = anchor[perm_ind2, ...]
+    else:
+      negative = anchor[perm_ind2, ...]
+      positive = anchor[perm_ind1, ...]
+
+    if self.augment:
+      positive = self.transform(positive)
+      negative = self.transform(negative)     
+
+    return anchor, positive, negative
