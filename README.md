@@ -3,6 +3,7 @@
 #### As part of the final course project for CS229: Machine Learning, Fall 2022
 #### Authors: [Nikos Soulounias](https://github.com/nsoul97), [Andrew Cheng](https://github.com/acheng416)
 
+![robonet_30k](https://user-images.githubusercontent.com/34735067/206864676-acc43941-808c-46c8-8ab6-f3148566d3c7.gif)
 
 ## Introduction
 Recently, Transformer-based architectures have achieved many state-of-the-art results in Computer Vision, NLP, and other fields, 
