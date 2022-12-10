@@ -25,12 +25,33 @@ cd CS229_Project/ && pip install .
 A detailed list of required packages can be found in the *requirements.txt* file, including: 
 #### numpy, scipy, torch, torchvision, einops, tqdm, omegaconf, gdown, h5py, pandas, opencv-python, imageio, moviepy, tensorboard
 
+You will also need to obtain two pretrained model checkpoints in order to compute some of the metrics.
+Pretrained **VGG16** trained on ImageNet can be downloaded [here](https://heibox.uni-heidelberg.de/f/607503859c864bc1b30b/?dl=1) 
+and the **I3D** model pretrained on Kinetics-400 can be obtained [here](https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt?dl=1).
+
+References for models and datasets:
+- Karen Simonyan and Andrew Zisserman. Very deep convolutional networks for large-scale
+image recognition. In Yoshua Bengio and Yann LeCun, editors, 3rd International Conference
+on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015, Conference
+Track Proceedings, 2015.
+- João Carreira and Andrew Zisserman. Quo vadis, action recognition? a new model and the
+kinetics dataset. 2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR),
+pages 4724–4733, 2017.
+- Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-
+scale hierarchical image database. In 2009 IEEE Conference on Computer Vision and Pattern
+Recognition, pages 248–255, 2009.
+
+After downloading, make the directory ```./checkpoints/metrics/``` at
+the root of the project folder and place these files inside.
+
+
 ## Dataset
 We choose the large-scale robot learning [RoboNet](https://arxiv.org/pdf/1910.11215.pdf) dataset, which contains multiple camera angle
 videos of 7 different robots and over 15 million frames in the full dataset. The dataset can be downloaded by following the 
 instructions in the official repository [here](https://github.com/SudeepDasari/RoboNet/wiki/Getting-Started).
 
 After downloading and extracting the full RoboNet dataset, you will need to the root of this repo and move the **hdf5/** folder containing raw data to the following directory. 
+
 Then, run the necessary preprocessing scripts (Warning time-consuming!):
 ```
 mv PATH_TO_HDF5/ ./data/dataset/ \
