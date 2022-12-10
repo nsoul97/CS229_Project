@@ -61,6 +61,11 @@ Next, for model training, use the following:
 ```
 python fevd-vqvae/main.py -d PATH_TO_PREPROCESSED_DATA -cfg configs/YOUR_CONFIG.yaml 
 ```
+The config files used for the project are:
+- Pixel loss only: ```baseline_2d.yaml```
+- Pixel and Perceptual loss: ```baseline.yaml```
+- 2D Encoder 3D Decoder : ```3d_decoder__2d_loss.yaml```
+
 ## Baseline
 We use a [VQ-VAE](https://papers.nips.cc/paper/2017/file/7a98af17e63a0ac09ce2e96d03992fbc-Paper.pdf) model, 
 which encodes the RGB frames and decodes the latents in the spatial domain. 
